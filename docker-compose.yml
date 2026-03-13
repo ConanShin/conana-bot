@@ -1,0 +1,47 @@
+services:
+  n8n:
+    build:
+      context: ./docker
+      dockerfile: Dockerfile
+    container_name: n8n-opencode
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-super-secret-encryption-key-change-me}
+      - NODE_FUNCTION_ALLOW_BUILTIN=*
+      - NODE_FUNCTION_ALLOW_EXTERNAL=*
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      # Login bypass and setup skip
+      - N8N_USER_MANAGEMENT_DISABLED=true
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+    depends_on:
+      - opencode-proxy
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  opencode-proxy:
+    build:
+      context: .
+      dockerfile: ./docker/opencode/Dockerfile
+    container_name: opencode-proxy
+    restart: unless-stopped
+    ports:
+      - "3284:3284"
+    environment:
+      - OPENCODE_PROXY_PORT=3284
+      - PRIMARY_MODEL=${PRIMARY_MODEL:-google/antigravity-gemini-3-flash}
+      - FALLBACK_MODEL=${FALLBACK_MODEL:-google/antigravity-gemini-3.1-pro}
+      - OPENCODE_TIMEOUT_MS=${OPENCODE_TIMEOUT_MS:-300000}
+    volumes:
+      - ~/.config/opencode:/root/.config/opencode
+      - ~/.cache/opencode:/root/.cache/opencode
+      - ~/.local/share/opencode:/root/.local/share/opencode
+
+volumes:
+  n8n_data:

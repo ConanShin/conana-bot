@@ -1,0 +1,124 @@
+#!/bin/bash
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+LT_PORT=5678
+PROXY_PORT=3284
+
+echo "🐳 Starting Docker n8n + OpenCode environment..."
+echo ""
+
+# 1. Cleanup
+pkill -f "localtunnel\|lt --port" 2>/dev/null || true
+pkill -f "opencode-proxy.js" 2>/dev/null || true
+pkill -f "cloudflared tunnel" 2>/dev/null || true
+sleep 1
+
+# 2. Get Tunnel URL
+echo "🌐 Starting Cloudflare tunnel..."
+CF_LOG="/tmp/cloudflare.log"
+npx -y cloudflared tunnel --url http://localhost:$LT_PORT > "$CF_LOG" 2>&1 &
+CF_PID=$!
+echo $CF_PID > /tmp/localtunnel.pid
+
+for i in $(seq 1 30); do
+  if grep -a -q "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" "$CF_LOG" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+TUNNEL_URL=$(grep -a -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" "$CF_LOG" | head -1)
+
+if [ -z "$TUNNEL_URL" ]; then
+  echo "  ⚠️  Could not get Cloudflare URL"
+  TUNNEL_URL="http://localhost:5678"
+fi
+
+echo "  ✅ Tunnel URL: $TUNNEL_URL"
+echo ""
+
+# 3. Load .env
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
+TOKEN=$(grep TELEGRAM_TOKEN .env | cut -d'=' -f2)
+
+# 4. Starting Containers
+echo "🔨 Building and starting Docker containers..."
+WEBHOOK_URL="$TUNNEL_URL" docker compose up -d --build
+
+echo ""
+echo "⏳ Waiting for n8n to be fully initialized..."
+# Wait for healthz
+while ! curl -s http://localhost:5678/healthz > /dev/null 2>&1; do
+  sleep 2
+done
+
+# Check logs for "n8n ready" to be sure it's not just the port open
+for i in $(seq 1 30); do
+  if docker logs n8n-opencode 2>&1 | grep -q "n8n ready"; then
+    echo "  ✅ n8n is ready!"
+    break
+  fi
+  sleep 2
+done
+sleep 5
+
+# 5. Workflow Import & Activate
+if [ -f "n8n-workflow-docker.json" ]; then
+  echo "📤 Importing n8n workflow..."
+  
+  if [ ! -z "$TOKEN" ]; then
+    echo "  🔑 Injecting Telegram Token into workflow..."
+    sed "s|%TELEGRAM_TOKEN%|$TOKEN|g" n8n-workflow-docker.json > /tmp/workflow.json
+  else
+    cp n8n-workflow-docker.json /tmp/workflow.json
+  fi
+  
+  docker cp /tmp/workflow.json n8n-opencode:/tmp/workflow.json
+  
+  echo "  📦 Running import command..."
+  docker exec n8n-opencode n8n import:workflow --input /tmp/workflow.json
+  
+  echo "  🚀 Activating workflow..."
+  docker exec n8n-opencode n8n publish:workflow --id=tg-opencode-main >/dev/null 2>&1 || true
+
+  echo "🔄 Restarting n8n to ensure webhook registration..."
+  docker restart n8n-opencode >/dev/null 2>&1
+  
+  # Wait for it to come back and ACTIVATE
+  echo "  ⌛ Waiting for workflow activation..."
+  for i in $(seq 1 30); do
+    if docker logs n8n-opencode 2>&1 | grep -q "Activated workflow"; then
+      echo "  ✅ Workflow activated and online!"
+      break
+    fi
+    sleep 1
+  done
+fi
+
+# 6. Manual Telegram Webhook Sync
+if [ ! -z "$TOKEN" ] && [[ $TUNNEL_URL == https* ]]; then
+  echo "🔗 Syncing Telegram Webhook..."
+  HOOK_URL="$TUNNEL_URL/webhook/tg-opencode-hook"
+  RESULT=$(curl -s "https://api.telegram.org/bot$TOKEN/setWebhook?url=$HOOK_URL")
+  if [[ $RESULT == *"\"ok\":true"* ]]; then
+    echo "  ✅ Webhook set to $HOOK_URL"
+  else
+    echo "  ⚠️  Telegram setWebhook failed: $RESULT"
+  fi
+fi
+
+echo ""
+echo "═══════════════════════════════════════════════════════════"
+echo "  🎉 Docker environment started!"
+echo ""
+echo "  n8n UI:           http://localhost:5678"
+echo "  Tunnel URL:       $TUNNEL_URL"
+echo "  OpenCode Proxy:   http://localhost:$PROXY_PORT"
+echo "  Containers:       n8n-opencode, opencode-proxy"
+echo "═══════════════════════════════════════════════════════════"

@@ -1,0 +1,75 @@
+{
+  "name": "Telegram → OpenCode (Docker)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tg-opencode-hook",
+        "options": {}
+      },
+      "id": "node-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "webhookId": "tg-opencode-hook-id",
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.body.message.chat.id }},\n  \"text\": \"⏳ OpenCode 처리 중입니다...\",\n  \"reply_to_message_id\": {{ $json.body.message.message_id }}\n}",
+        "options": {}
+      },
+      "id": "node-ack",
+      "name": "Send ACK",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TIMEOUT = 300000;\n\nconst trigger = $('Webhook Trigger').first();\nconst message = trigger.json.body.message?.text || '';\n\nif (!message) {\n  return [{ json: { formattedText: '(메시지가 비어있습니다)' } }];\n}\n\nfunction escapeHTML(str) {\n  return str.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt: message },\n    json: true,\n    timeout: TIMEOUT\n  });\n\n  const model = result.model || 'OpenCode';\n  let text = result.text || '(no output)';\n  \n  if (text.length > 3900) {\n    text = text.slice(0, 3900) + \"\\n\\n... (Truncated)\";\n  }\n  \n  const formattedText = `🤖 <b>Model:</b> <code>${escapeHTML(model)}</code>\\n\\n${escapeHTML(text)}`;\n  \n  return [{ json: { formattedText, model, text } }];\n} catch (e) {\n  const errMsg = (e.message || '').slice(0, 500);\n  const formattedText = `❌ <b>오류:</b>\\n<pre>${escapeHTML(errMsg)}</pre>`;\n  return [{ json: { formattedText, error: true } }];\n}"
+      },
+      "id": "node-run-opencode",
+      "name": "Run OpenCode",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ $('Webhook Trigger').first().json.body.message.chat.id }},\n  \"text\": \"{{ $json.formattedText }}\",\n  \"reply_to_message_id\": {{ $('Webhook Trigger').first().json.body.message.message_id }},\n  \"parse_mode\": \"HTML\"\n}",
+        "options": {}
+      },
+      "id": "node-reply",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Send ACK", "type": "main", "index": 0}]]
+    },
+    "Send ACK": {
+      "main": [[{"node": "Run OpenCode", "type": "main", "index": 0}]]
+    },
+    "Run OpenCode": {
+      "main": [[{"node": "Send Reply", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "id": "tg-opencode-main",
+  "active": true
+}

@@ -1,0 +1,8 @@
+node_modules
+.env
+bot.log
+bot.pid
+*.log
+
+# Docker
+docker/antigravity-accounts.json
