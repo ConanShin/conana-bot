@@ -45,7 +45,7 @@
         "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $('Webhook Trigger').first().json.body.message.chat.id }},\n  \"text\": \"{{ $json.formattedText }}\",\n  \"reply_to_message_id\": {{ $('Webhook Trigger').first().json.body.message.message_id }},\n  \"parse_mode\": \"HTML\"\n}",
+        "jsonBody": "={{ { \"chat_id\": $('Webhook Trigger').first().json.body.message.chat.id, \"text\": $json.formattedText, \"reply_to_message_id\": $('Webhook Trigger').first().json.body.message.message_id, \"parse_mode\": \"HTML\" } }}",
         "options": {}
       },
       "id": "node-reply",
