@@ -14,84 +14,108 @@
       "webhookId": "tg-opencode-hook-id",
       "position": [
         0,
-        0
+        300
       ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Route by command (supports text, photos, and media groups) ────────────\nconst trigger = $('Webhook Trigger').first();\nconst body = trigger.json.body;\nconst msg = body.message || {};\nconst text = (msg.text || msg.caption || '').trim();\nconst chatId = msg.chat?.id;\nconst msgId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\n\nlet sessionId = 'none';\nlet responseText = '';\n\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TG_TOKEN = '%TELEGRAM_TOKEN%';\n\n// ─── Buffer album photos ─────────────────────────────────────────\n// When sending multiple photos as an album, Telegram delivers each\n// photo as a separate webhook call with the same media_group_id.\n// We must buffer ALL of them regardless of whether this message has\n// the /stock caption (only the first message in the album has it).\nif (mediaGroupId) {\n  const photos = msg.photo || [];\n  let fileId = null;\n  if (photos.length > 0) fileId = photos[photos.length - 1].file_id;\n  if (msg.document && msg.document.mime_type && msg.document.mime_type.startsWith('image/')) {\n    fileId = msg.document.file_id;\n  }\n  if (fileId) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'POST',\n        url: `${OPENCODE_URL}/media-group/add`,\n        body: { mediaGroupId, fileId },\n        json: true\n      });\n    } catch (e) { /* ignore buffer errors */ }\n  }\n}\n\ntry {\n  if (text === '/new') {\n    const result = await this.helpers.httpRequest({\n      method: 'POST',\n      url: `${OPENCODE_URL}/session/clear`,\n      body: { chatId },\n      json: true\n    });\n    sessionId = 'none';\n    responseText = result.message || '새로운 대화를 시작합니다. 무엇을 도와드릴까요?';\n  } else {\n    const result = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `${OPENCODE_URL}/session?chatId=${chatId}`,\n      json: true\n    });\n    sessionId = result.sessionId || 'none';\n  }\n} catch (e) { /* ignore */ }\n\nconst sessionDisplay = sessionId.replace(/^ses_/, '');\n\n// ─── /stock: detect photos with /stock caption ───────────────────\nif (text.toLowerCase().startsWith('/stock')) {\n  // Collect photo file_ids from this message (for single-photo case)\n  const photos = msg.photo || [];\n  const photoFileIds = [];\n  if (photos.length > 0) {\n    photoFileIds.push(photos[photos.length - 1].file_id);\n  }\n  if (msg.document && msg.document.mime_type && msg.document.mime_type.startsWith('image/')) {\n    photoFileIds.push(msg.document.file_id);\n  }\n  return [{ json: { route: 'stock', chatId, msgId, message: text, sessionId: sessionDisplay, photoFileIds, mediaGroupId } }];\n}\n\n// ─── Album photo without /stock caption: silently ignore ─────────\n// These are additional photos in a /stock album; already buffered above.\nif (mediaGroupId && (msg.photo || msg.document)) {\n  return [{ json: { route: 'ignore', chatId, msgId, message: '', sessionId: sessionDisplay } }];\n}\n\n// ─── /naverblog ──────────────────────────────────────────────────\nif (text.toLowerCase().startsWith('/naverblog')) {\n  const topic = text.replace(/^\\/naverblog\\s*/i, '').trim();\n  return [{ json: { route: 'naverblog', topic, chatId, msgId, message: text, sessionId: sessionDisplay } }];\n}\n\n// ─── Default: OpenCode ───────────────────────────────────────────\nreturn [{ json: { route: 'opencode', topic: '', chatId, msgId, message: text, sessionId: sessionDisplay, responseText } }];"
+        "jsCode": "// ─── Route by command (supports text, photos, and media groups) ────────────\nconst trigger = $('Webhook Trigger').first();\nconst body = trigger.json.body;\nconst msg = body.message || {};\nconst text = (msg.text || msg.caption || '').trim();\nconst chatId = msg.chat?.id;\nconst msgId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\n\nlet sessionId = 'none';\nlet responseText = '';\n\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TG_TOKEN = '%TELEGRAM_TOKEN%';\n\n// ─── Buffer album photos ─────────────────────────────────────────\nif (mediaGroupId) {\n  const photos = msg.photo || [];\n  let fileId = null;\n  if (photos.length > 0) fileId = photos[photos.length - 1].file_id;\n  if (msg.document && msg.document.mime_type && msg.document.mime_type.startsWith('image/')) {\n    fileId = msg.document.file_id;\n  }\n  if (fileId) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'POST',\n        url: `${OPENCODE_URL}/media-group/add`,\n        body: { mediaGroupId, fileId },\n        json: true\n      });\n    } catch (e) { /* ignore buffer errors */ }\n  }\n}\n\ntry {\n  if (text === '/new') {\n    const result = await this.helpers.httpRequest({\n      method: 'POST',\n      url: `${OPENCODE_URL}/session/clear`,\n      body: { chatId },\n      json: true\n    });\n    sessionId = 'none';\n    responseText = result.message || '새로운 대화를 시작합니다. 무엇을 도와드릴까요?';\n  } else {\n    const result = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `${OPENCODE_URL}/session?chatId=${chatId}`,\n      json: true\n    });\n    sessionId = result.sessionId || 'none';\n  }\n} catch (e) { /* ignore */ }\n\nconst sessionDisplay = sessionId.replace(/^ses_/, '');\n\n// ─── /stock ──────────────────────────────────────────────────────\nif (text.toLowerCase().startsWith('/stock')) {\n  const photos = msg.photo || [];\n  const photoFileIds = [];\n  if (photos.length > 0) {\n    photoFileIds.push(photos[photos.length - 1].file_id);\n  }\n  if (msg.document && msg.document.mime_type && msg.document.mime_type.startsWith('image/')) {\n    photoFileIds.push(msg.document.file_id);\n  }\n  return [{ json: { route: 'stock', chatId, msgId, message: text, sessionId: sessionDisplay, photoFileIds, mediaGroupId } }];\n}\n\n// ─── Album photo without /stock caption: silently ignore ─────────\nif (mediaGroupId && (msg.photo || msg.document)) {\n  return [{ json: { route: 'ignore', chatId, msgId, message: '', sessionId: sessionDisplay } }];\n}\n\n// ─── /naverblog ──────────────────────────────────────────────────\nif (text.toLowerCase().startsWith('/naverblog')) {\n  const topic = text.replace(/^\\/naverblog\\s*/i, '').trim();\n  return [{ json: { route: 'naverblog', topic, chatId, msgId, message: text, sessionId: sessionDisplay } }];\n}\n\n// ─── Default: OpenCode ───────────────────────────────────────────\nreturn [{ json: { route: 'opencode', topic: '', chatId, msgId, message: text, sessionId: sessionDisplay, responseText } }];"
       },
       "id": "node-router",
       "name": "Route by Command",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        220,
-        0
+        240,
+        300
       ]
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
+        "rules": {
+          "values": [
             {
-              "id": "cond-naverblog",
-              "leftValue": "={{ $json.route }}",
-              "rightValue": "naverblog",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "node-if",
-      "name": "Is Naver Blog?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        440,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
+              "outputIndex": 0,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "naverblog",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "Naver Blog"
+            },
             {
-              "id": "cond-stock",
-              "leftValue": "={{ $json.route }}",
-              "rightValue": "stock",
-              "operator": {
-                "type": "string",
-                "operation": "equals"
-              }
+              "outputIndex": 1,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "stock",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "Stock"
+            },
+            {
+              "outputIndex": 2,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "opencode",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputLabel": "OpenCode"
             }
-          ],
-          "combinator": "and"
+          ]
         },
-        "options": {}
+        "options": {
+          "fallbackOutput": "none"
+        }
       },
-      "id": "node-if-stock",
-      "name": "Is Stock?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
+      "id": "node-switch",
+      "name": "Route Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
       "position": [
-        660,
-        120
+        500,
+        300
       ]
     },
     {
@@ -108,34 +132,21 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        660,
-        -200
+        780,
+        0
       ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Write Article via OpenCode/Gemini ────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst routeData = $('Route by Command').first().json;\nconst topic  = routeData.topic;\nconst chatId = routeData.chatId;\nconst msgId  = routeData.msgId;\nconst sessionId = $json.sessionId || routeData.sessionId || 'none';\n\nconst prompt = `당신은 전문 블로그 작가입니다. 아래 주제를 바탕으로 네이버 블로그에 올릴 완성도 높은 글을 HTML 형식으로 작성해주세요.\\n\\n주제: ${topic}\\n\\n요구사항:\\n- 제목(title)과 본문(content)을 JSON 형식으로 반환하세요\\n- 본문은 HTML 태그를 사용하세요 (<h2>, <p>, <ul>, <li>, <strong>, <em> 등)\\n- 최소 1000자 이상 작성\\n- 소제목을 3~5개 포함\\n- 독자 친화적이고 SEO에 최적화된 글\\n- 마지막에 요약/결론 섹션 포함\\n\\n반드시 아래 JSON 형식으로만 답변하세요 (다른 텍스트 없이):\\n{\"title\": \"글 제목\", \"content\": \"<html 본문>\"}`;\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt, chatId: String(chatId) },\n    json: true,\n    timeout: 120000\n  });\n\n  let rawText = result.text || '';\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\\"title\\\"[\\s\\S]*\\\"content\\\"[\\s\\S]*\\}/);\n  const returnedSessionId = result.sessionId ? result.sessionId.replace(/^ses_/, '') : sessionId;\n  if (!jsonMatch) {\n    return [{ json: { chatId, msgId, title: `${topic}에 대한 정리`, content: `<p>${rawText.slice(0, 3000)}</p>`, sessionId: returnedSessionId } }];\n  }\n\n  const parsed = JSON.parse(jsonMatch[0]);\n  return [{ json: { chatId, msgId, title: parsed.title, content: parsed.content, sessionId: returnedSessionId } }];\n} catch(e) {\n  return [{ json: { chatId, msgId, title: `${topic} - 블로그 글`, content: `<h2>${topic}</h2><p>오류: ${e.message}</p>`, writeError: e.message, sessionId } }];\n}"
+        "jsCode": "// ─── Write Article via OpenCode/Gemini & Format for Telegram ──────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst routeData = $('Route by Command').first().json;\nconst topic  = routeData.topic;\nconst chatId = routeData.chatId;\nconst msgId  = routeData.msgId;\nconst sessionId = $json.sessionId || routeData.sessionId || 'none';\n\nconst prompt = `당신은 전문 블로그 작가입니다. 아래 주제를 바탕으로 네이버 블로그에 올릴 완성도 높은 글을 HTML 형식으로 작성해주세요.\\n\\n주제: ${topic}\\n\\n요구사항:\\n- 제목(title)과 본문(content)을 JSON 형식으로 반환하세요\\n- 본문은 HTML 태그를 사용하세요 (<h2>, <p>, <ul>, <li>, <strong>, <em> 등)\\n- 최소 1000자 이상 작성\\n- 소제목을 3~5개 포함\\n- 독자 친화적이고 SEO에 최적화된 글\\n- 마지막에 요약/결론 섹션 포함\\n\\n반드시 아래 JSON 형식으로만 답변하세요 (다른 텍스트 없이):\\n{\"title\": \"글 제목\", \"content\": \"<html 본문>\"}`;\n\nfunction stripHTML(html) {\n  return String(html || '')\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<\\/?(h[1-6]|p|li|div|tr)>/gi, '\\n')\n    .replace(/<[^>]+>/g, '')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt, chatId: String(chatId) },\n    json: true,\n    timeout: 120000\n  });\n\n  let rawText = result.text || '';\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\\"title\\\"[\\s\\S]*\\\"content\\\"[\\s\\S]*\\}/);\n  const returnedSessionId = result.sessionId ? result.sessionId.replace(/^ses_/, '') : sessionId;\n\n  let title, content;\n  if (!jsonMatch) {\n    title = `${topic}에 대한 정리`;\n    content = `<p>${rawText.slice(0, 3000)}</p>`;\n  } else {\n    const parsed = JSON.parse(jsonMatch[0]);\n    title = parsed.title;\n    content = parsed.content;\n  }\n\n  // ─── Format for Telegram ───\n  const plainContent = stripHTML(content);\n  const MAX_CONTENT = 3800;\n  const truncated = plainContent.length > MAX_CONTENT\n    ? plainContent.slice(0, MAX_CONTENT) + '\\n\\n... (내용이 길어 일부 생략되었습니다)'\n    : plainContent;\n\n  const formattedText = `📰 <b>${title}</b>\\n\\n${truncated}\\n\\n🏷️ <b>Session:</b> <code>${returnedSessionId || 'none'}</code>`;\n\n  return [{ json: { chatId, msgId, formattedText, sessionId: returnedSessionId } }];\n} catch(e) {\n  const errMsg = (e.message || '').slice(0, 500);\n  const formattedText = `❌ <b>블로그 글 작성 오류:</b>\\n<pre>${errMsg}</pre>\\n\\n🏷️ <b>Session:</b> <code>${sessionId}</code>`;\n  return [{ json: { chatId, msgId, formattedText, sessionId } }];\n}"
       },
       "id": "node-write-article",
-      "name": "Write Article",
+      "name": "Write & Format Article",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
-        -200
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// ─── Format Article for Telegram ─────────────────────────────────────────\nconst { chatId, msgId, title, content, sessionId } = $json;\n\nfunction stripHTML(html) {\n  return String(html || '')\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<\\/?(h[1-6]|p|li|div|tr)>/gi, '\\n')\n    .replace(/<[^>]+>/g, '')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nconst plainContent = stripHTML(content);\n\n// Telegram message limit is 4096 chars; reserve space for title header\nconst MAX_CONTENT = 3800;\nconst truncated = plainContent.length > MAX_CONTENT\n  ? plainContent.slice(0, MAX_CONTENT) + '\\n\\n... (내용이 길어 일부 생략되었습니다)'\n  : plainContent;\n\nconst formattedText = `📰 <b>${title}</b>\\n\\n${truncated}\\n\\n🏷️ <b>Session:</b> <code>${sessionId || 'none'}</code>`;\n\nreturn [{ json: { chatId, msgId, title, content, formattedText, sessionId } }];"
-      },
-      "id": "node-format-article",
-      "name": "Format Article",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1320,
-        -200
+        1060,
+        0
       ]
     },
     {
@@ -152,89 +163,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1540,
-        -200
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"⏳ OpenCode 처리 중입니다...\\n🏷️ Session: {{ $json.sessionId }}\",\n  \"reply_to_message_id\": {{ $json.msgId }}\n}",
-        "options": {}
-      },
-      "id": "node-ack",
-      "name": "Send ACK",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
-      "position": [
-        880,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "// ─── Run OpenCode ────────────────────────────────────────────────────────────\n// NOTE: $json here is the Telegram ACK response — pull real data from router.\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TIMEOUT = 300000;\n\n// Use router data for input, but default to passed-in json if available\nconst routeData = $('Route by Command').first().json;\nconst message = routeData.message || '';\nconst chatId  = routeData.chatId;\nconst msgId   = routeData.msgId;\nconst sessionIdDisplay = $json.sessionId || routeData.sessionId || 'none';\n\nif (routeData.responseText) {\n  const formattedText = `🤖 <b>Model:</b> <code>System</code>\\n\\n${routeData.responseText}\\n\\n🏷️ <b>Session:</b> <code>${sessionIdDisplay}</code>`;\n  return [{ json: { chatId, msgId, formattedText, model: 'System', text: routeData.responseText, sessionId: sessionIdDisplay } }];\n}\n\nif (!message) {\n  return [{ json: { chatId, msgId, formattedText: '(메시지가 비어있습니다)', sessionId: sessionIdDisplay } }];\n}\n\nfunction escapeHTML(str) {\n  return str.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt: message, chatId: String(chatId) },\n    json: true,\n    timeout: TIMEOUT\n  });\n\n  const model = result.model || 'OpenCode';\n  let text = result.text || '(no output)';\n  \n  if (text.length > 3900) {\n    text = text.slice(0, 3900) + \"\\n\\n... (Truncated)\";\n  }\n  \n  const returnedSession = result.sessionId ? result.sessionId.replace(/^ses_/, '') : sessionIdDisplay;\n  const formattedText = `🤖 <b>Model:</b> <code>${escapeHTML(model)}</code>\\n\\n${escapeHTML(text)}\\n\\n🏷️ <b>Session:</b> <code>${escapeHTML(returnedSession)}</code>`;\n  \n  return [{ json: { chatId, msgId, formattedText, model, text, sessionId: returnedSession } }];\n} catch (e) {\n  const errMsg = (e.message || '').slice(0, 500);\n  const formattedText = `❌ <b>오류:</b>\\n<pre>${escapeHTML(errMsg)}</pre>\\n\\n🏷️ <b>Session:</b> <code>${escapeHTML(sessionIdDisplay)}</code>`;\n  return [{ json: { chatId, msgId, formattedText, error: true, sessionId: sessionIdDisplay } }];\n}"
-      },
-      "id": "node-run-opencode",
-      "name": "Run OpenCode",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1100,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ { \"chat_id\": $json.chatId, \"text\": $json.formattedText, \"reply_to_message_id\": $json.msgId, \"parse_mode\": \"HTML\" } }}",
-        "options": {}
-      },
-      "id": "node-reply",
-      "name": "Send Reply",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.1,
-      "position": [
-        1320,
-        240
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "cond-not-ignore",
-              "leftValue": "={{ $json.route }}",
-              "rightValue": "ignore",
-              "operator": {
-                "type": "string",
-                "operation": "notEquals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "node-if-not-ignore",
-      "name": "Not Ignore?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        880,
-        360
+        1340,
+        0
       ]
     },
     {
@@ -251,34 +181,34 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        880,
-        -60
+        780,
+        300
       ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Download Photos from Telegram ────────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst routeData = $('Route by Command').first().json;\nlet photoFileIds = routeData.photoFileIds || [];\nconst mediaGroupId = routeData.mediaGroupId || null;\nconst chatId = routeData.chatId;\nconst msgId = routeData.msgId;\nconst sessionId = routeData.sessionId || 'none';\nconst TG_TOKEN = '%TELEGRAM_TOKEN%';\n\n// If this is a media group (album), wait and collect ALL buffered photos\nif (mediaGroupId) {\n  try {\n    const collected = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `${OPENCODE_URL}/media-group/collect?id=${mediaGroupId}&waitMs=2000`,\n      json: true,\n      timeout: 10000\n    });\n    if (collected.fileIds && collected.fileIds.length > 0) {\n      photoFileIds = collected.fileIds;\n    }\n  } catch (e) {\n    console.error('Failed to collect media group:', e.message);\n    // Fall back to single photo from this message\n  }\n}\n\nif (photoFileIds.length === 0) {\n  return [{ json: { chatId, msgId, sessionId, imageUrls: [], error: '사진이 첨부되지 않았습니다. /stock 명령어와 함께 주식 스크린샷을 보내주세요.' } }];\n}\n\nconst imageUrls = [];\nfor (const fileId of photoFileIds) {\n  try {\n    const fileInfo = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://api.telegram.org/bot${TG_TOKEN}/getFile?file_id=${fileId}`,\n      json: true\n    });\n    if (fileInfo.ok && fileInfo.result.file_path) {\n      const downloadUrl = `https://api.telegram.org/file/bot${TG_TOKEN}/${fileInfo.result.file_path}`;\n      imageUrls.push(downloadUrl);\n    }\n  } catch (e) {\n    console.error(`Failed to get file info for ${fileId}:`, e.message);\n  }\n}\n\nreturn [{ json: { chatId, msgId, sessionId, imageUrls } }];"
+        "jsCode": "// ─── Download Photos from Telegram ────────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst routeData = $('Route by Command').first().json;\nlet photoFileIds = routeData.photoFileIds || [];\nconst mediaGroupId = routeData.mediaGroupId || null;\nconst chatId = routeData.chatId;\nconst msgId = routeData.msgId;\nconst sessionId = routeData.sessionId || 'none';\nconst TG_TOKEN = '%TELEGRAM_TOKEN%';\n\n// If this is a media group (album), wait and collect ALL buffered photos\nif (mediaGroupId) {\n  try {\n    const collected = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `${OPENCODE_URL}/media-group/collect?id=${mediaGroupId}&waitMs=2000`,\n      json: true,\n      timeout: 10000\n    });\n    if (collected.fileIds && collected.fileIds.length > 0) {\n      photoFileIds = collected.fileIds;\n    }\n  } catch (e) {\n    console.error('Failed to collect media group:', e.message);\n  }\n}\n\nif (photoFileIds.length === 0) {\n  return [{ json: { chatId, msgId, sessionId, imageUrls: [], error: '사진이 첨부되지 않았습니다. /stock 명령어와 함께 주식 스크린샷을 보내주세요.' } }];\n}\n\nconst imageUrls = [];\nfor (const fileId of photoFileIds) {\n  try {\n    const fileInfo = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `https://api.telegram.org/bot${TG_TOKEN}/getFile?file_id=${fileId}`,\n      json: true\n    });\n    if (fileInfo.ok && fileInfo.result.file_path) {\n      const downloadUrl = `https://api.telegram.org/file/bot${TG_TOKEN}/${fileInfo.result.file_path}`;\n      imageUrls.push(downloadUrl);\n    }\n  } catch (e) {\n    console.error(`Failed to get file info for ${fileId}:`, e.message);\n  }\n}\n\nreturn [{ json: { chatId, msgId, sessionId, imageUrls } }];"
       },
       "id": "node-download-photos",
       "name": "Download Photos",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1100,
-        -60
+        1060,
+        300
       ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Analyze Stock Images via Gemini Vision ──────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst { chatId, msgId, sessionId, imageUrls } = $json;\n\nif (!imageUrls || imageUrls.length === 0) {\n  return [{ json: { chatId, msgId, sessionId, stockData: null, error: $json.error || '이미지를 다운로드할 수 없습니다.' } }];\n}\n\nconst analysisPrompt = `You are a financial data extraction expert. Analyze the attached stock portfolio screenshot(s) carefully.\n\nExtract ALL stock holdings visible in the image(s). For each stock, extract:\n- name: The stock name (in Korean or English as shown)\n- ticker: The ticker/symbol if visible\n- shares: Number of shares held\n- totalValue: Current total value in KRW (원)\n- profitLoss: Profit or loss amount in KRW (원) — positive means gain, negative means loss\n- profitLossPercent: Profit or loss percentage\n- market: \"domestic\" (국내) or \"overseas\" (해외)\n\nAlso calculate:\n- totalPortfolioValue: Sum of all stock values\n- totalProfitLoss: Sum of all profit/loss\n- overallProfitPercent: Overall portfolio profit percentage\n\nReturn ONLY valid JSON in this exact format (no other text):\n{\n  \"stocks\": [\n    { \"name\": \"...\", \"ticker\": \"...\", \"shares\": 0, \"totalValue\": 0, \"profitLoss\": 0, \"profitLossPercent\": 0, \"market\": \"domestic\" }\n  ],\n  \"totalPortfolioValue\": 0,\n  \"totalProfitLoss\": 0,\n  \"overallProfitPercent\": 0\n}`;\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/analyze-image`,\n    body: { prompt: analysisPrompt, imageUrls, chatId: String(chatId) },\n    json: true,\n    timeout: 300000\n  });\n\n  let rawText = result.text || '';\n  // Extract JSON from response\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\\"stocks\\\"[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    const stockData = JSON.parse(jsonMatch[0]);\n    return [{ json: { chatId, msgId, sessionId, stockData, rawAnalysis: rawText } }];\n  } else {\n    return [{ json: { chatId, msgId, sessionId, stockData: null, rawAnalysis: rawText, error: 'JSON 파싱 실패' } }];\n  }\n} catch (e) {\n  return [{ json: { chatId, msgId, sessionId, stockData: null, error: `분석 오류: ${e.message}` } }];\n}"
+        "jsCode": "// ─── Analyze Stock Images via Gemini Vision ──────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst { chatId, msgId, sessionId, imageUrls } = $json;\n\nif (!imageUrls || imageUrls.length === 0) {\n  return [{ json: { chatId, msgId, sessionId, stockData: null, error: $json.error || '이미지를 다운로드할 수 없습니다.' } }];\n}\n\nconst analysisPrompt = `You are a financial data extraction expert. Analyze the attached stock portfolio screenshot(s) carefully.\n\nExtract ALL stock holdings visible in the image(s). For each stock, extract:\n- name: The stock name (in Korean or English as shown)\n- ticker: The ticker/symbol if visible\n- shares: Number of shares held\n- totalValue: Current total value in KRW (원)\n- profitLoss: Profit or loss amount in KRW (원) — positive means gain, negative means loss\n- profitLossPercent: Profit or loss percentage\n- market: \"domestic\" (국내) or \"overseas\" (해외)\n\nAlso calculate:\n- totalPortfolioValue: Sum of all stock values\n- totalProfitLoss: Sum of all profit/loss\n- overallProfitPercent: Overall portfolio profit percentage\n\nReturn ONLY valid JSON in this exact format (no other text):\n{\n  \"stocks\": [\n    { \"name\": \"...\", \"ticker\": \"...\", \"shares\": 0, \"totalValue\": 0, \"profitLoss\": 0, \"profitLossPercent\": 0, \"market\": \"domestic\" }\n  ],\n  \"totalPortfolioValue\": 0,\n  \"totalProfitLoss\": 0,\n  \"overallProfitPercent\": 0\n}`;\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/analyze-image`,\n    body: { prompt: analysisPrompt, imageUrls, chatId: String(chatId) },\n    json: true,\n    timeout: 300000\n  });\n\n  let rawText = result.text || '';\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\\"stocks\\\"[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    const stockData = JSON.parse(jsonMatch[0]);\n    return [{ json: { chatId, msgId, sessionId, stockData, rawAnalysis: rawText } }];\n  } else {\n    return [{ json: { chatId, msgId, sessionId, stockData: null, rawAnalysis: rawText, error: 'JSON 파싱 실패' } }];\n  }\n} catch (e) {\n  return [{ json: { chatId, msgId, sessionId, stockData: null, error: `분석 오류: ${e.message}` } }];\n}"
       },
       "id": "node-analyze-stock",
       "name": "Analyze Stock Images",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1320,
-        -60
+        1340,
+        300
       ]
     },
     {
@@ -290,8 +220,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
-        -60
+        1620,
+        300
       ]
     },
     {
@@ -303,8 +233,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1760,
-        -60
+        1900,
+        300
       ]
     },
     {
@@ -321,8 +251,57 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1980,
-        -60
+        2180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"⏳ OpenCode 처리 중입니다...\\n🏷️ Session: {{ $json.sessionId }}\",\n  \"reply_to_message_id\": {{ $json.msgId }}\n}",
+        "options": {}
+      },
+      "id": "node-ack",
+      "name": "Send ACK (OpenCode)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        780,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─── Run OpenCode ────────────────────────────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TIMEOUT = 300000;\n\nconst routeData = $('Route by Command').first().json;\nconst message = routeData.message || '';\nconst chatId  = routeData.chatId;\nconst msgId   = routeData.msgId;\nconst sessionIdDisplay = $json.sessionId || routeData.sessionId || 'none';\n\nif (routeData.responseText) {\n  const formattedText = `🤖 <b>Model:</b> <code>System</code>\\n\\n${routeData.responseText}\\n\\n🏷️ <b>Session:</b> <code>${sessionIdDisplay}</code>`;\n  return [{ json: { chatId, msgId, formattedText, model: 'System', text: routeData.responseText, sessionId: sessionIdDisplay } }];\n}\n\nif (!message) {\n  return [{ json: { chatId, msgId, formattedText: '(메시지가 비어있습니다)', sessionId: sessionIdDisplay } }];\n}\n\nfunction escapeHTML(str) {\n  return str.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt: message, chatId: String(chatId) },\n    json: true,\n    timeout: TIMEOUT\n  });\n\n  const model = result.model || 'OpenCode';\n  let text = result.text || '(no output)';\n  \n  if (text.length > 3900) {\n    text = text.slice(0, 3900) + \"\\n\\n... (Truncated)\";\n  }\n  \n  const returnedSession = result.sessionId ? result.sessionId.replace(/^ses_/, '') : sessionIdDisplay;\n  const formattedText = `🤖 <b>Model:</b> <code>${escapeHTML(model)}</code>\\n\\n${escapeHTML(text)}\\n\\n🏷️ <b>Session:</b> <code>${escapeHTML(returnedSession)}</code>`;\n  \n  return [{ json: { chatId, msgId, formattedText, model, text, sessionId: returnedSession } }];\n} catch (e) {\n  const errMsg = (e.message || '').slice(0, 500);\n  const formattedText = `❌ <b>오류:</b>\\n<pre>${escapeHTML(errMsg)}</pre>\\n\\n🏷️ <b>Session:</b> <code>${escapeHTML(sessionIdDisplay)}</code>`;\n  return [{ json: { chatId, msgId, formattedText, error: true, sessionId: sessionIdDisplay } }];\n}"
+      },
+      "id": "node-run-opencode",
+      "name": "Run OpenCode",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1060,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"chat_id\": $json.chatId, \"text\": $json.formattedText, \"reply_to_message_id\": $json.msgId, \"parse_mode\": \"HTML\" } }}",
+        "options": {}
+      },
+      "id": "node-reply",
+      "name": "Send Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1340,
+        600
       ]
     }
   ],
@@ -342,14 +321,14 @@
       "main": [
         [
           {
-            "node": "Is Naver Blog?",
+            "node": "Route Switch",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Is Naver Blog?": {
+    "Route Switch": {
       "main": [
         [
           {
@@ -360,17 +339,6 @@
         ],
         [
           {
-            "node": "Is Stock?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Is Stock?": {
-      "main": [
-        [
-          {
             "node": "Send ACK (Stock)",
             "type": "main",
             "index": 0
@@ -378,48 +346,25 @@
         ],
         [
           {
-            "node": "Not Ignore?",
+            "node": "Send ACK (OpenCode)",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "Not Ignore?": {
-      "main": [
-        [
-          {
-            "node": "Send ACK",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        []
       ]
     },
     "Send ACK (Naver)": {
       "main": [
         [
           {
-            "node": "Write Article",
+            "node": "Write & Format Article",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Write Article": {
-      "main": [
-        [
-          {
-            "node": "Format Article",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format Article": {
+    "Write & Format Article": {
       "main": [
         [
           {
@@ -485,7 +430,7 @@
         ]
       ]
     },
-    "Send ACK": {
+    "Send ACK (OpenCode)": {
       "main": [
         [
           {
