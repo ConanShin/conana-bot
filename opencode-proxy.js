@@ -163,6 +163,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Clear session
+  if (req.method === "POST" && req.url === "/session/clear") {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try {
+        const { chatId } = JSON.parse(body);
+        if (chatId) {
+          userSessions.set(String(chatId), "none");
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId: "none", message: "새로운 대화를 시작합니다. 무엇을 도와드릴까요?" }));
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
   // Session info
   if (req.method === "GET" && req.url.startsWith("/session")) {
     const parsedUrl = new URL(req.url, 'http://localhost');
