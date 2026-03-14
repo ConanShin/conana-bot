@@ -11,6 +11,7 @@
 -   **동적 보안 주입**: `.env`의 민감한 토큰 정보가 실행 시점에 워크플로우에 안전하게 주입되어 권한 충돌 문제를 원천 차단합니다.
 -   **무중단 웹훅**: `Cloudflare Tunnel`을 통해 동적 IP 환경에서도 안정적인 외부 웹훅 URL을 자동으로 할당받습니다.
 -   **OpenCode CLI 공유**: Host PC의 인증 세션을 컨테이너와 실시간으로 공유하여 별도의 재인증이 필요 없습니다.
+-   **스마트 블로그 작성**: `/naverblog` 명령어를 통해 특정 주제에 대한 고품질 네이버 블로그 포스팅 초안을 즉시 생성합니다.
 
 ---
 
@@ -22,11 +23,22 @@
 
 ---
 
+## 🎮 명령어 가이드 (Commands)
+
+텔레그램 채팅창에서 다음 명령어를 사용해보세요:
+
+| 명령어 | 설명 | 예시 |
+| :--- | :--- | :--- |
+| `(일반 메시지)` | OpenCode/Gemini와 자유롭게 대화 및 코딩 상담 | `파이썬으로 웹 크롤러 짜줘` |
+| `/naverblog [주제]` | 특정 주제에 최적화된 블로그 포스팅 초안 생성 | `/naverblog 인공지능 트렌드` |
+
+---
+
 ## 🛠️ 설치 및 설정 (Setup)
 
 1.  **환경 변수 설정**: 프로젝트 루트에 `.env` 파일을 생성하고 정보를 입력합니다.
     ```env
-    TELEGRAM_TOKEN=8564840135:your_bot_token_here
+    TELEGRAM_TOKEN=your_bot_token_here
     PRIMARY_MODEL=google/antigravity-gemini-3-flash
     FALLBACK_MODEL=google/antigravity-gemini-3.1-pro
     OPENCODE_TIMEOUT_MS=300000
@@ -61,6 +73,7 @@
 -   **n8n-opencode**: 워크플로우 엔진. 텔레그램 메시지를 수신하고 전체 로직을 제어합니다.
 -   **opencode-proxy**: n8n의 요청을 받아 로컬 OpenCode CLI를 실행해주는 다리 역할을 합니다.
 -   **Cloudflare Tunnel**: 로컬 n8n을 안전하게 외부에 노출시켜 텔레그램 웹훅을 수신 가능하게 합니다.
+-   **Gemini/OpenCode AI**: 고성능 LLM을 통해 단순 대화부터 논리적인 블로그 글 작성까지 처리합니다.
 
 ---
 

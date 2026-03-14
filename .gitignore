@@ -6,3 +6,6 @@ bot.pid
 
 # Docker
 docker/antigravity-accounts.json
+
+# Naver Blog (removed)
+docker/naver-blog/

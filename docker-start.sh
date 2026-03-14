@@ -72,6 +72,14 @@ sleep 5
 if [ -f "n8n-workflow-docker.json" ]; then
   echo "📤 Importing n8n workflow..."
   
+  # Unpublish ALL active workflows first to prevent webhook path conflicts
+  # (handles any manually-imported duplicates from the n8n UI)
+  echo "  🧹 Clearing any conflicting active workflows..."
+  ACTIVE_IDS=$(docker exec n8n-opencode n8n list:workflow 2>/dev/null | awk -F'|' '{print $1}' | tr -d ' ')
+  for WF_ID in $ACTIVE_IDS; do
+    docker exec n8n-opencode n8n unpublish:workflow --id="$WF_ID" > /dev/null 2>&1 || true
+  done
+
   if [ ! -z "$TOKEN" ]; then
     echo "  🔑 Injecting Telegram Token into workflow..."
     sed "s|%TELEGRAM_TOKEN%|$TOKEN|g" n8n-workflow-docker.json > /tmp/workflow.json

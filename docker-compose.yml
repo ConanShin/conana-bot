@@ -43,5 +43,6 @@ services:
       - ~/.cache/opencode:/root/.cache/opencode
       - ~/.local/share/opencode:/root/.local/share/opencode
 
+
 volumes:
   n8n_data:

@@ -1,5 +1,5 @@
 {
-  "name": "Telegram → OpenCode (Docker)",
+  "name": "Telegram → OpenCode + Naver Blog (Docker)",
   "nodes": [
     {
       "parameters": {
@@ -14,58 +14,170 @@
       "webhookId": "tg-opencode-hook-id",
       "position": [0, 0]
     },
+
+    {
+      "parameters": {
+        "jsCode": "// ─── Route by command ───────────────────────────────────────────────────────\nconst trigger = $('Webhook Trigger').first();\nconst message = trigger.json.body.message?.text || '';\nconst chatId  = trigger.json.body.message?.chat?.id;\nconst msgId   = trigger.json.body.message?.message_id;\n\nif (message.startsWith('/naverblog')) {\n  const topic = message.replace(/^\\/naverblog\\s*/i, '').trim();\n  return [{ json: { route: 'naverblog', topic, chatId, msgId, message } }];\n}\n\nreturn [{ json: { route: 'opencode', topic: '', chatId, msgId, message } }];"
+      },
+      "id": "node-router",
+      "name": "Route by Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond-naverblog",
+              "leftValue": "={{ $json.route }}",
+              "rightValue": "naverblog",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-if",
+      "name": "Is Naver Blog?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+
     {
       "parameters": {
         "method": "POST",
         "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $json.body.message.chat.id }},\n  \"text\": \"⏳ OpenCode 처리 중입니다...\",\n  \"reply_to_message_id\": {{ $json.body.message.message_id }}\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"📝 블로그 글을 작성 중입니다... 잠시 기다려주세요 (약 1-2분 소요)\",\n  \"reply_to_message_id\": {{ $json.msgId }}\n}",
+        "options": {}
+      },
+      "id": "node-ack-naver",
+      "name": "Send ACK (Naver)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, -120]
+    },
+
+
+    {
+      "parameters": {
+        "jsCode": "// ─── Write Article via OpenCode/Gemini ────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst routeData = $('Route by Command').first().json;\nconst topic  = routeData.topic;\nconst chatId = routeData.chatId;\nconst msgId  = routeData.msgId;\n\nconst prompt = `당신은 전문 블로그 작가입니다. 아래 주제를 바탕으로 네이버 블로그에 올릴 완성도 높은 글을 HTML 형식으로 작성해주세요.\\n\\n주제: ${topic}\\n\\n요구사항:\\n- 제목(title)과 본문(content)을 JSON 형식으로 반환하세요\\n- 본문은 HTML 태그를 사용하세요 (<h2>, <p>, <ul>, <li>, <strong>, <em> 등)\\n- 최소 1000자 이상 작성\\n- 소제목을 3~5개 포함\\n- 독자 친화적이고 SEO에 최적화된 글\\n- 마지막에 요약/결론 섹션 포함\\n\\n반드시 아래 JSON 형식으로만 답변하세요 (다른 텍스트 없이):\\n{\"title\": \"글 제목\", \"content\": \"<html 본문>\"}`;\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt },\n    json: true,\n    timeout: 120000\n  });\n\n  let rawText = result.text || '';\n  const jsonMatch = rawText.match(/\\{[\\s\\S]*\\\"title\\\"[\\s\\S]*\\\"content\\\"[\\s\\S]*\\}/);\n  if (!jsonMatch) {\n    return [{ json: { chatId, msgId, title: `${topic}에 대한 정리`, content: `<p>${rawText.slice(0, 3000)}</p>` } }];\n  }\n\n  const parsed = JSON.parse(jsonMatch[0]);\n  return [{ json: { chatId, msgId, title: parsed.title, content: parsed.content } }];\n} catch(e) {\n  return [{ json: { chatId, msgId, title: `${topic} - 블로그 글`, content: `<h2>${topic}</h2><p>오류: ${e.message}</p>`, writeError: e.message } }];\n}"
+      },
+      "id": "node-write-article",
+      "name": "Write Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, -120]
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// ─── Format Article for Telegram ─────────────────────────────────────────\nconst { chatId, msgId, title, content } = $json;\n\nfunction stripHTML(html) {\n  return String(html || '')\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<\\/?(h[1-6]|p|li|div|tr)>/gi, '\\n')\n    .replace(/<[^>]+>/g, '')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nconst plainContent = stripHTML(content);\n\n// Telegram message limit is 4096 chars; reserve space for title header\nconst MAX_CONTENT = 3800;\nconst truncated = plainContent.length > MAX_CONTENT\n  ? plainContent.slice(0, MAX_CONTENT) + '\\n\\n... (내용이 길어 일부 생략되었습니다)'\n  : plainContent;\n\nconst formattedText = `📰 <b>${title}</b>\\n\\n${truncated}`;\n\nreturn [{ json: { chatId, msgId, title, content, formattedText } }];"
+      },
+      "id": "node-format-article",
+      "name": "Format Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, -120]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"chat_id\": $json.chatId, \"text\": $json.formattedText, \"reply_to_message_id\": $json.msgId, \"parse_mode\": \"HTML\" } }}",
+        "options": {}
+      },
+      "id": "node-send-article",
+      "name": "Send Article",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1540, -120]
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"⏳ OpenCode 처리 중입니다...\",\n  \"reply_to_message_id\": {{ $json.msgId }}\n}",
         "options": {}
       },
       "id": "node-ack",
       "name": "Send ACK",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [220, 0]
+      "position": [660, 120]
     },
+
     {
       "parameters": {
-        "jsCode": "const OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TIMEOUT = 300000;\n\nconst trigger = $('Webhook Trigger').first();\nconst message = trigger.json.body.message?.text || '';\n\nif (!message) {\n  return [{ json: { formattedText: '(메시지가 비어있습니다)' } }];\n}\n\nfunction escapeHTML(str) {\n  return str.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt: message },\n    json: true,\n    timeout: TIMEOUT\n  });\n\n  const model = result.model || 'OpenCode';\n  let text = result.text || '(no output)';\n  \n  if (text.length > 3900) {\n    text = text.slice(0, 3900) + \"\\n\\n... (Truncated)\";\n  }\n  \n  const formattedText = `🤖 <b>Model:</b> <code>${escapeHTML(model)}</code>\\n\\n${escapeHTML(text)}`;\n  \n  return [{ json: { formattedText, model, text } }];\n} catch (e) {\n  const errMsg = (e.message || '').slice(0, 500);\n  const formattedText = `❌ <b>오류:</b>\\n<pre>${escapeHTML(errMsg)}</pre>`;\n  return [{ json: { formattedText, error: true } }];\n}"
+        "jsCode": "// ─── Run OpenCode ────────────────────────────────────────────────────────────\n// NOTE: $json here is the Telegram ACK response — pull real data from router.\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TIMEOUT = 300000;\n\nconst routeData = $('Route by Command').first().json;\nconst message = routeData.message || '';\nconst chatId  = routeData.chatId;\nconst msgId   = routeData.msgId;\n\nif (!message) {\n  return [{ json: { chatId, msgId, formattedText: '(메시지가 비어있습니다)' } }];\n}\n\nfunction escapeHTML(str) {\n  return str.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt: message },\n    json: true,\n    timeout: TIMEOUT\n  });\n\n  const model = result.model || 'OpenCode';\n  let text = result.text || '(no output)';\n  \n  if (text.length > 3900) {\n    text = text.slice(0, 3900) + \"\\n\\n... (Truncated)\";\n  }\n  \n  const formattedText = `🤖 <b>Model:</b> <code>${escapeHTML(model)}</code>\\n\\n${escapeHTML(text)}`;\n  \n  return [{ json: { chatId, msgId, formattedText, model, text } }];\n} catch (e) {\n  const errMsg = (e.message || '').slice(0, 500);\n  const formattedText = `❌ <b>오류:</b>\\n<pre>${escapeHTML(errMsg)}</pre>`;\n  return [{ json: { chatId, msgId, formattedText, error: true } }];\n}"
       },
       "id": "node-run-opencode",
       "name": "Run OpenCode",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 0]
+      "position": [880, 120]
     },
+
     {
       "parameters": {
         "method": "POST",
         "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { \"chat_id\": $('Webhook Trigger').first().json.body.message.chat.id, \"text\": $json.formattedText, \"reply_to_message_id\": $('Webhook Trigger').first().json.body.message.message_id, \"parse_mode\": \"HTML\" } }}",
+        "jsonBody": "={{ { \"chat_id\": $json.chatId, \"text\": $json.formattedText, \"reply_to_message_id\": $json.msgId, \"parse_mode\": \"HTML\" } }}",
         "options": {}
       },
       "id": "node-reply",
       "name": "Send Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [660, 0]
+      "position": [1100, 120]
     }
   ],
+
   "connections": {
     "Webhook Trigger": {
-      "main": [[{"node": "Send ACK", "type": "main", "index": 0}]]
+      "main": [[{ "node": "Route by Command", "type": "main", "index": 0 }]]
+    },
+    "Route by Command": {
+      "main": [[{ "node": "Is Naver Blog?", "type": "main", "index": 0 }]]
+    },
+    "Is Naver Blog?": {
+      "main": [
+        [{ "node": "Send ACK (Naver)", "type": "main", "index": 0 }],
+        [{ "node": "Send ACK", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send ACK (Naver)": {
+      "main": [[{ "node": "Write Article", "type": "main", "index": 0 }]]
+    },
+    "Write Article": {
+      "main": [[{ "node": "Format Article", "type": "main", "index": 0 }]]
+    },
+    "Format Article": {
+      "main": [[{ "node": "Send Article", "type": "main", "index": 0 }]]
     },
     "Send ACK": {
-      "main": [[{"node": "Run OpenCode", "type": "main", "index": 0}]]
+      "main": [[{ "node": "Run OpenCode", "type": "main", "index": 0 }]]
     },
     "Run OpenCode": {
-      "main": [[{"node": "Send Reply", "type": "main", "index": 0}]]
+      "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]]
     }
   },
+
   "settings": {
     "executionOrder": "v1",
     "saveManualExecutions": true
