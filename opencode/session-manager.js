@@ -1,0 +1,54 @@
+const userSessions = new Map(); // chatId -> sessionId
+const mediaGroupBuffer = new Map(); // mediaGroupId -> { fileIds: [], timestamp }
+
+// Auto-cleanup stale media buffers (older than 60 seconds)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, data] of mediaGroupBuffer) {
+    if (now - data.timestamp > 60000) {
+      mediaGroupBuffer.delete(id);
+    }
+  }
+}, 30000);
+
+const sessionManager = {
+  // ─── Chat Sessions ───────────────────────────────────────────────
+  get(chatId) {
+    const key = String(chatId);
+    return userSessions.get(key) || "none";
+  },
+
+  set(chatId, sessionId) {
+    if (chatId && sessionId && sessionId !== "none") {
+      userSessions.set(String(chatId), sessionId);
+    }
+  },
+
+  clear(chatId) {
+    if (chatId) {
+      userSessions.set(String(chatId), "none");
+    }
+  },
+
+  // ─── Media Group Buffer ──────────────────────────────────────────
+  bufferMedia(mediaGroupId, fileId) {
+    if (!mediaGroupBuffer.has(mediaGroupId)) {
+      mediaGroupBuffer.set(mediaGroupId, { fileIds: [], timestamp: Date.now() });
+    }
+    const group = mediaGroupBuffer.get(mediaGroupId);
+    if (!group.fileIds.includes(fileId)) {
+      group.fileIds.push(fileId);
+    }
+    group.timestamp = Date.now();
+    return group.fileIds.length;
+  },
+
+  collectMedia(mediaGroupId) {
+    const group = mediaGroupBuffer.get(mediaGroupId);
+    const fileIds = group ? group.fileIds : [];
+    mediaGroupBuffer.delete(mediaGroupId);
+    return fileIds;
+  }
+};
+
+module.exports = sessionManager;

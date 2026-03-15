@@ -36,6 +36,7 @@
 | `/new` | 현재 대화 세션을 초기화하고 새로운 세션 시작 | `/new` |
 | `/naverblog [주제]` | 특정 주제에 최적화된 블로그 포스팅 초안 생성 | `/naverblog 인공지능 트렌드` |
 | `/stock` + 📸 사진 | 포트폴리오 통계, 종목 추출 및 투자 전략 리포트 생성 (여러 장 전송 가능) | 사진 여러 장과 함께 `/stock` |
+| `/mail` | AI를 통한 이메일 초안 작성 및 발송 (Gmail SMTP) | `/mail user@example.com "이메일 제목과 본문 내용 요약"` |
 
 ---
 
@@ -47,7 +48,9 @@
     PRIMARY_MODEL=google/antigravity-gemini-3-flash
     FALLBACK_MODEL=google/antigravity-gemini-3.1-pro
     STOCK_MODEL=google/antigravity-claude-opus-4-6-thinking
-    OPENCODE_TIMEOUT_MS=300000
+    OPENCODE_TIMEOUT_MS=600000
+    GMAIL_USER=your_email@gmail.com
+    GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
     ```
 
 2.  **시스템 실행**:

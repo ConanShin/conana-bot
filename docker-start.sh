@@ -81,8 +81,11 @@ if [ -f "n8n-workflow-docker.json" ]; then
   done
 
   if [ ! -z "$TOKEN" ]; then
-    echo "  🔑 Injecting Telegram Token into workflow..."
-    sed "s|%TELEGRAM_TOKEN%|$TOKEN|g" n8n-workflow-docker.json > /tmp/workflow.json
+    echo "  🔑 Injecting Secrets into workflow..."
+    sed -e "s|%TELEGRAM_TOKEN%|$TOKEN|g" \
+        -e "s|%GMAIL_USER%|$GMAIL_USER|g" \
+        -e "s|%GMAIL_APP_PASSWORD%|$GMAIL_APP_PASSWORD|g" \
+        n8n-workflow-docker.json > /tmp/workflow.json
   else
     cp n8n-workflow-docker.json /tmp/workflow.json
   fi

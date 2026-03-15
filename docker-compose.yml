@@ -27,8 +27,8 @@ services:
 
   opencode-proxy:
     build:
-      context: .
-      dockerfile: ./docker/opencode/Dockerfile
+      context: ./opencode
+      dockerfile: Dockerfile
     container_name: opencode-proxy
     restart: unless-stopped
     ports:
@@ -37,7 +37,9 @@ services:
       - OPENCODE_PROXY_PORT=3284
       - PRIMARY_MODEL=${PRIMARY_MODEL:-google/antigravity-gemini-3-flash}
       - FALLBACK_MODEL=${FALLBACK_MODEL:-google/antigravity-gemini-3.1-pro}
-      - OPENCODE_TIMEOUT_MS=${OPENCODE_TIMEOUT_MS:-300000}
+      - OPENCODE_TIMEOUT_MS=${OPENCODE_TIMEOUT_MS:-600000}
+      - GMAIL_USER=${GMAIL_USER}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
     volumes:
       - ~/.config/opencode:/root/.config/opencode
       - ~/.cache/opencode:/root/.cache/opencode

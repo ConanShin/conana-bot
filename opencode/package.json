@@ -1,0 +1,9 @@
+{
+  "name": "conana-bot-proxy",
+  "version": "1.0.0",
+  "description": "Proxy for OpenCode and Email utilities",
+  "main": "opencode-proxy.js",
+  "dependencies": {
+    "nodemailer": "^6.9.13"
+  }
+}

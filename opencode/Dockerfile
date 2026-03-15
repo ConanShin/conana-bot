@@ -12,8 +12,7 @@ WORKDIR /usr/src/app
 RUN npm install -g opencode-ai@latest
 
 # Prepare proxy server
-COPY opencode-proxy.js ./
-COPY package*.json ./
+COPY . ./
 
 # Install any dependencies for the proxy (like express)
 RUN if [ -f "package.json" ]; then npm install --production; fi
