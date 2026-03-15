@@ -6,13 +6,16 @@ RUN apt-get update && apt-get install -y curl unzip bash && \
     curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
 # Install OpenCode CLI globally
 RUN npm install -g opencode-ai@latest
 
-# Prepare proxy server
-COPY . ./
+# Copy shared and service code
+COPY shared ./shared
+COPY opencode ./opencode
+
+WORKDIR /app/opencode
 
 # Install any dependencies for the proxy (like express)
 RUN if [ -f "package.json" ]; then npm install --production; fi

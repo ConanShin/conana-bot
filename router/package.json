@@ -1,0 +1,9 @@
+{
+  "name": "conana-bot-router",
+  "version": "1.0.0",
+  "private": true,
+  "main": "router-service.js",
+  "scripts": {
+    "start": "node router-service.js"
+  }
+}

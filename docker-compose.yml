@@ -1,8 +1,8 @@
 services:
   n8n:
     build:
-      context: ./docker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: docker/Dockerfile
     container_name: n8n-opencode
     restart: unless-stopped
     ports:
@@ -27,8 +27,8 @@ services:
 
   opencode-proxy:
     build:
-      context: ./opencode
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: opencode/Dockerfile
     container_name: opencode-proxy
     restart: unless-stopped
     ports:
@@ -47,8 +47,8 @@ services:
 
   naver-proxy:
     build:
-      context: ./naver
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: naver/Dockerfile
     container_name: naver-proxy
     restart: unless-stopped
     ports:
@@ -60,8 +60,8 @@ services:
 
   stock-proxy:
     build:
-      context: ./stock
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: stock/Dockerfile
     container_name: stock-proxy
     restart: unless-stopped
     ports:
@@ -73,6 +73,19 @@ services:
     depends_on:
       - opencode-proxy
 
+  router:
+    build:
+      context: .
+      dockerfile: router/Dockerfile
+    container_name: router
+    restart: unless-stopped
+    ports:
+      - "3287:3287"
+    environment:
+      - ROUTER_PORT=3287
+      - OPENCODE_URL=http://opencode-proxy:3284
+    depends_on:
+      - opencode-proxy
 
 volumes:
   n8n_data:
