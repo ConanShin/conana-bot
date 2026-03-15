@@ -5,5 +5,8 @@
   "main": "router-service.js",
   "scripts": {
     "start": "node router-service.js"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.13"
   }
 }

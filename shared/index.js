@@ -4,13 +4,6 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-let nodemailer;
-try {
-  nodemailer = require("nodemailer");
-} catch (e) {
-  console.warn("Nodemailer not installed. Mail functions may fail.");
-}
-
 const readBody = (req) => {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -111,14 +104,31 @@ const downloadFile = (url, destPath) => {
   });
 };
 
+const formatReply = (content, { model, sessionId, isSystem, moduleName } = {}) => {
+  // Only strip for display. Handle 'none' or null cases.
+  let sId = String(sessionId || "none");
+  while (sId.startsWith("ses_")) {
+    sId = sId.substring(4);
+  }
+  
+  const modelLine = model ? `🤖 <b>Model:</b> <code>${model}</code>\n` : "";
+  const moduleLine = moduleName ? `🧩 <b>Module:</b> <code>${moduleName}</code>\n` : "";
+  const sessionLine = `🏷️ <b>Session:</b> <code>${sId}</code>\n\n`;
+
+  if (isSystem) {
+    return `✨ <b>System Message:</b>\n${moduleLine}${sessionLine}${content}`;
+  }
+  return `${modelLine}${moduleLine}${sessionLine}${content}`;
+};
+
 module.exports = {
   readBody,
   httpRequest,
   respond,
   stripHTML,
   escapeHTML,
+  formatReply,
   downloadFile,
-  nodemailer,
   fs,
   path,
   crypto,

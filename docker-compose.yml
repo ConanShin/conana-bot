@@ -38,8 +38,6 @@ services:
       - PRIMARY_MODEL=${PRIMARY_MODEL:-google/antigravity-gemini-3-flash}
       - FALLBACK_MODEL=${FALLBACK_MODEL:-google/antigravity-gemini-3.1-pro}
       - OPENCODE_TIMEOUT_MS=${OPENCODE_TIMEOUT_MS:-600000}
-      - GMAIL_USER=${GMAIL_USER}
-      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
     volumes:
       - ~/.config/opencode:/root/.config/opencode
       - ~/.cache/opencode:/root/.cache/opencode
@@ -84,6 +82,21 @@ services:
     environment:
       - ROUTER_PORT=3287
       - OPENCODE_URL=http://opencode-proxy:3284
+    depends_on:
+      - opencode-proxy
+
+  email-proxy:
+    build:
+      context: .
+      dockerfile: email/Dockerfile
+    container_name: email-proxy
+    restart: unless-stopped
+    ports:
+      - "3288:3288"
+    environment:
+      - OPENCODE_URL=http://opencode-proxy:3284
+      - GMAIL_USER=${GMAIL_USER}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
     depends_on:
       - opencode-proxy
 

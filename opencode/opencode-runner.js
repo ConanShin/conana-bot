@@ -17,37 +17,72 @@ function stripAnsi(str) {
 }
 
 function extractAnswer(stdout) {
-  const lines = stdout.split("\n").filter(Boolean);
+  const lines = stdout.split("\n");
   const parts = [];
   const errors = [];
   let sessionId = null;
+  let hasValidResponse = false;
+  
   for (const line of lines) {
-    try {
-      const ev = JSON.parse(line);
-      if (ev.sessionID && !sessionId) {
-        sessionId = ev.sessionID;
-      }
-      if (ev.type === "text" && ev.part && ev.part.text) {
-        parts.push(ev.part.text);
-      } else if (ev.type === "assistant" && ev.properties && Array.isArray(ev.properties.content)) {
-        for (const block of ev.properties.content) {
-          if (block.type === "text" && block.text) parts.push(block.text);
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Detect if this line looks like start of a JSON block
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        const ev = JSON.parse(trimmed);
+        if (ev.sessionID && !sessionId) {
+          sessionId = ev.sessionID;
         }
-      } else if (ev.type === "error" && ev.error) {
-        const errMsg = ev.error.data?.message || ev.error.message || ev.error.name || JSON.stringify(ev.error);
-        errors.push(errMsg);
-      }
-    } catch { /* skip */ }
+        
+        // Response content extraction
+        if (ev.type === "text" && ev.part?.text) {
+          parts.push(ev.part.text);
+          hasValidResponse = true;
+        } else if (ev.type === "assistant" && ev.properties?.content) {
+          for (const block of ev.properties.content) {
+            if (block.type === "text" && block.text) {
+              parts.push(block.text);
+              hasValidResponse = true;
+            }
+          }
+        } else if (ev.type === "assistant" && ev.part?.text) {
+          parts.push(ev.part.text);
+          hasValidResponse = true;
+        } else if (ev.type === "error" && ev.error) {
+          const errMsg = ev.error.data?.message || ev.error.message || ev.error.name || JSON.stringify(ev.error);
+          errors.push(errMsg);
+        }
+      } catch { /* likely partial or multi-line JSON, skip or wait */ }
+    }
   }
-  const text = parts.length > 0 ? parts.join("").trim() : (stripAnsi(stdout).trim() || "(no output)");
-  return { text, sessionId, errors };
+
+  let text = parts.join("").trim();
+  
+  // Refined fallback: remove ANY line that looks like it could be part of JSON
+  if (!text) {
+    const cleaned = stripAnsi(stdout)
+      .split("\n")
+      .filter(l => {
+        const t = l.trim();
+        // Filter out JSON markers or lines starting with JSON-common keys
+        if (!t) return false;
+        if (t.startsWith("{") || t.startsWith("}") || t.startsWith("[") || t.startsWith("]")) return false;
+        if (t.startsWith('"') && t.includes('":')) return false; // JSON key-value pair
+        return true;
+      })
+      .join("\n")
+      .trim();
+    text = cleaned || "(no output)";
+  }
+
+  return { text, sessionId, errors, hasValidResponse };
 }
 
 async function runOpencode(prompt, model, sessionId, chatIdStr, files = []) {
   const safePrompt = prompt.replace(/'/g, "'\\''");
   let cmd = `"${OPENCODE_PATH}" run --model "${model}"`;
 
-  // Use 'none' explicit checks to avoid sending the literal string 'none' as session
   if (sessionId && sessionId !== 'none') {
     cmd += ` --session "${sessionId}" --continue`;
   }
@@ -68,30 +103,35 @@ async function runOpencode(prompt, model, sessionId, chatIdStr, files = []) {
     if (stderr) console.warn("stderr:", stderr.slice(0, 500));
 
     const extracted = extractAnswer(stdout);
-    const finalSessionId = extracted.sessionId || sessionId;
+    
+    // Only persist session if we got a valid response and a valid session ID
+    let finalSessionId = sessionId;
+    
+    // Logic: Only update sessionId if we got a real response and a session ID from the binary
+    // This prevents "none" or random system trace IDs from overwriting valid chat sessions
+    if (extracted.hasValidResponse && extracted.sessionId) {
+      finalSessionId = extracted.sessionId;
+    }
 
-    // Check for quota/rate-limit errors mapping
-    if (extracted.errors && extracted.errors.length > 0) {
+    console.log(`[RunOpencode] Session: in=${sessionId || "none"} -> out=${finalSessionId || "none"} (valid=${extracted.hasValidResponse})`);
+
+    if (extracted.errors.length > 0) {
       const errMsg = extracted.errors.join('; ');
-      console.warn(`OpenCode returned error event: ${errMsg}`);
-      const isQuota = /quota|rate\.limit|429|overload|limit|unavailable/i.test(errMsg);
-      if (isQuota) {
-        const quotaErr = new Error(errMsg);
-        quotaErr.stderr = errMsg;
-        throw quotaErr;
+      console.warn(`OpenCode error trace: ${errMsg}`);
+      if (/quota|rate\.limit|429|overload/i.test(errMsg)) {
+        const qErr = new Error(errMsg);
+        qErr.stderr = errMsg;
+        throw qErr;
       }
     }
 
-    // Persist session if we have a valid one
-    if (chatIdStr && finalSessionId && finalSessionId !== "none") {
+    if (chatIdStr && finalSessionId && finalSessionId !== "none" && extracted.hasValidResponse) {
       sessionManager.set(chatIdStr, finalSessionId);
     }
 
     return { text: extracted.text, model, sessionId: finalSessionId || 'none' };
   } catch (err) {
     console.error("Exec Exception:", err.message);
-    if (err.stdout) console.log("stdout:", err.stdout.slice(0, 500));
-    if (err.stderr) console.error("stderr:", err.stderr.slice(0, 500));
     throw err;
   }
 }

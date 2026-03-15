@@ -12,160 +12,55 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "webhookId": "tg-opencode-hook-id",
-      "position": [
-        0,
-        300
-      ]
+      "position": [ 0, 300 ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Parse Telegram message & buffer album photos ────────────────────────\nconst trigger = $('Webhook Trigger').first();\nconst body = trigger.json.body;\nconst msg = body.message || {};\nconst text = (msg.text || msg.caption || '').trim();\nconst chatId = msg.chat?.id;\nconst msgId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\n\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\n\n// ─── Buffer album photos ─────────────────────────────────────────\nif (mediaGroupId) {\n  const photos = msg.photo || [];\n  let fileId = null;\n  if (photos.length > 0) fileId = photos[photos.length - 1].file_id;\n  if (msg.document && msg.document.mime_type && msg.document.mime_type.startsWith('image/')) {\n    fileId = msg.document.file_id;\n  }\n  if (fileId) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'POST',\n        url: `${OPENCODE_URL}/media-group/add`,\n        body: { mediaGroupId, fileId },\n        json: true\n      });\n    } catch (e) { /* ignore buffer errors */ }\n  }\n}\n\n// ─── Extract photo file IDs (for single-photo /stock) ────────────\nconst photoFileIds = [];\nconst photos = msg.photo || [];\nif (photos.length > 0) {\n  photoFileIds.push(photos[photos.length - 1].file_id);\n}\nif (msg.document && msg.document.mime_type && msg.document.mime_type.startsWith('image/')) {\n  photoFileIds.push(msg.document.file_id);\n}\n\nreturn [{ json: { chatId, msgId, text, mediaGroupId, photoFileIds, hasPhoto: !!(msg.photo || msg.document) } }];"
+        "jsCode": "// ─── Parse Telegram message & buffer album photos ────────────────────────\nconst trigger = $('Webhook Trigger').first();\nconst body = trigger.json.body;\nconst msg = body.message || {};\nconst text = (msg.text || msg.caption || '').trim();\nconst chatId = msg.chat?.id;\nconst msgId = msg.message_id;\nconst mediaGroupId = msg.media_group_id || null;\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\n\nif (mediaGroupId) {\n  const photos = msg.photo || [];\n  let fileId = photos.length > 0 ? photos[photos.length - 1].file_id : null;\n  if (msg.document?.mime_type?.startsWith('image/')) fileId = msg.document.file_id;\n  if (fileId) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'POST',\n        url: `${OPENCODE_URL}/media-group/add`,\n        body: { mediaGroupId, fileId },\n        json: true\n      });\n    } catch (e) {}\n  }\n}\n\nconst photoFileIds = [];\nconst photos = msg.photo || [];\nif (photos.length > 0) photoFileIds.push(photos[photos.length - 1].file_id);\nif (msg.document?.mime_type?.startsWith('image/')) photoFileIds.push(msg.document.file_id);\n\nreturn [{ json: { chatId, msgId, text, mediaGroupId, photoFileIds, hasPhoto: photoFileIds.length > 0 } }];"
       },
       "id": "node-parse",
       "name": "Parse & Buffer",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        240,
-        300
-      ]
+      "position": [ 240, 300 ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Session Manager: resolve chatId → sessionId ─────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst { chatId, msgId, text, mediaGroupId, photoFileIds, hasPhoto } = $json;\n\nlet sessionId = 'none';\nlet responseText = '';\n\ntry {\n  if (text === '/new') {\n    const result = await this.helpers.httpRequest({\n      method: 'POST',\n      url: `${OPENCODE_URL}/session/clear`,\n      body: { chatId },\n      json: true\n    });\n    sessionId = result.sessionId || 'none';\n    responseText = result.message || '새로운 대화를 시작합니다. 무엇을 도와드릴까요?';\n  } else {\n    const result = await this.helpers.httpRequest({\n      method: 'GET',\n      url: `${OPENCODE_URL}/session?chatId=${chatId}`,\n      json: true\n    });\n    sessionId = result.sessionId || 'none';\n  }\n} catch (e) { /* ignore */ }\n\nconst sessionDisplay = sessionId.replace(/^ses_/, '');\n\nreturn [{ json: { chatId, msgId, text, mediaGroupId, photoFileIds, hasPhoto, sessionId: sessionDisplay, responseText } }];"
+        "jsCode": "// ─── Session Manager ───────────────────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst { chatId, text } = $json;\n\nlet sessionId = 'none';\nlet responseText = '';\n\ntry {\n  if (text === '/new') {\n    const result = await this.helpers.httpRequest({ method: 'POST', url: `${OPENCODE_URL}/session/clear`, body: { chatId }, json: true });\n    sessionId = result.sessionId || 'none';\n    responseText = result.message || '새로운 대화를 시작합니다.';\n  } else {\n    const result = await this.helpers.httpRequest({ method: 'GET', url: `${OPENCODE_URL}/session?chatId=${chatId}`, json: true });\n    sessionId = result.sessionId || 'none';\n  }\n} catch (e) {}\n\nreturn [{ json: { ...$json, sessionId: sessionId, displaySessionId: sessionId.replace(/^ses_/g, ''), responseText } }];"
       },
       "id": "node-session",
       "name": "Session Manager",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        500,
-        300
-      ]
+      "position": [ 500, 300 ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Route by Command or LLM Intent ──────────────────────────────────────────\nconst { chatId, msgId, text, mediaGroupId, photoFileIds, hasPhoto, sessionId, responseText } = $json;\nconst ROUTER_URL = 'http://router:3287';\n\nconst createOutput = (route, extra = {}) => [{ \n  json: { route, chatId, msgId, message: text, sessionId, photoFileIds, mediaGroupId, ...extra } \n}];\n\nif (text && text.startsWith('/')) {\n  const lower = text.toLowerCase();\n  if (lower.startsWith('/stock')) return createOutput('stock', { subIntent: 'analyze' });\n  if (lower.startsWith('/naverblog')) return createOutput('blog', { topic: text.replace(/^\\/naverblog\\s*/i, '').trim() });\n  if (lower.startsWith('/mail')) {\n    const parts = text.match(/\\/mail\\s+([^\\s]+)\\s+[\"']?(.*)[\"']?/i);\n    const receiver = parts ? parts[1] : '';\n    const query = parts ? (parts[2] || '').replace(/[\"']$/, '') : '';\n    return createOutput('email', { receiver, query });\n  }\n  return createOutput('opencode', { responseText });\n}\n\nif (!text) {\n  if (hasPhoto) return createOutput('stock', { subIntent: 'analyze' });\n  return createOutput('opencode', { responseText: '(no text provided)' });\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST', \n    url: `${ROUTER_URL}/router/intent`, \n    body: { message: text }, \n    json: true \n  });\n\n  // Ensure result is an object\n  const routerResult = (typeof result === 'string') ? JSON.parse(result) : result;\n  console.log('[n8n Router] Raw Result:', JSON.stringify(routerResult));\n\n  const intent = routerResult.intent || 'opencode';\n  const subIntent = routerResult.subIntent || null;\n  const routeMap = { 'blog': 'blog', 'email': 'email', 'stock': 'stock', 'qa': 'opencode', 'search': 'opencode', 'general': 'opencode' };\n  const finalRoute = routeMap[intent] || 'opencode';\n\n  const extra = { subIntent, routerConfidence: routerResult.confidence };\n  if (finalRoute === 'blog') extra.topic = text;\n  if (finalRoute === 'email') extra.query = text;\n\n  console.log(`[n8n Router] Result: ${finalRoute} (${intent})`);\n  return createOutput(finalRoute, extra);\n} catch (e) {\n  console.error('[n8n Router] Error:', e.message);\n  return createOutput('opencode', { responseText });\n}"
+        "jsCode": "// ─── Route by Command or LLM Intent ──────────────────────────────────────────\nconst { text, hasPhoto } = $json;\nconst ROUTER_URL = 'http://router:3287';\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST', \n    url: `${ROUTER_URL}/router/intent`, \n    body: { message: text, hasPhoto }, \n    json: true \n  });\n\n  const intent = result.intent || 'general';\n  const routeMap = { 'blog': 'blog', 'email': 'email', 'stock': 'stock' };\n  const finalRoute = routeMap[intent] || 'opencode';\n\n  // IMPORTANT: Only extract SAFE fields from router response.\n  // Do NOT spread ...result — it contains sessionId/text/formattedText\n  // from the router's internal OpenCode call, which would overwrite\n  // the user's real session data.\n  const safeFields = {};\n  if (result.topic) safeFields.topic = result.topic;\n  if (result.receiver) safeFields.receiver = result.receiver;\n  if (result.query) safeFields.query = result.query;\n  if (result.subIntent) safeFields.subIntent = result.subIntent;\n\n  return [{ json: { ...$json, route: finalRoute, message: text, intent, ...safeFields } }];\n} catch (e) {\n  return [{ json: { ...$json, route: 'opencode', message: text } }];\n}"
       },
       "id": "node-router",
       "name": "Route by Command",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        760,
-        300
-      ]
+      "position": [ 760, 300 ]
     },
     {
       "parameters": {
         "rules": {
           "values": [
-            {
-              "outputIndex": 0,
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.route }}",
-                    "rightValue": "blog",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputLabel": "Naver Blog"
-            },
-            {
-              "outputIndex": 1,
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.route }}",
-                    "rightValue": "stock",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputLabel": "Stock"
-            },
-            {
-              "outputIndex": 2,
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.route }}",
-                    "rightValue": "opencode",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputLabel": "OpenCode"
-            },
-            {
-              "outputIndex": 3,
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict"
-                },
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.route }}",
-                    "rightValue": "email",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputLabel": "Mail"
-            }
+            { "outputIndex": 0, "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [ { "leftValue": "={{ $json.route }}", "rightValue": "blog", "operator": { "type": "string", "operation": "equals" } } ], "combinator": "and" }, "renameOutput": true, "outputLabel": "Naver Blog" },
+            { "outputIndex": 1, "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [ { "leftValue": "={{ $json.route }}", "rightValue": "stock", "operator": { "type": "string", "operation": "equals" } } ], "combinator": "and" }, "renameOutput": true, "outputLabel": "Stock" },
+            { "outputIndex": 2, "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [ { "leftValue": "={{ $json.route }}", "rightValue": "opencode", "operator": { "type": "string", "operation": "equals" } } ], "combinator": "and" }, "renameOutput": true, "outputLabel": "OpenCode" },
+            { "outputIndex": 3, "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "conditions": [ { "leftValue": "={{ $json.route }}", "rightValue": "email", "operator": { "type": "string", "operation": "equals" } } ], "combinator": "and" }, "renameOutput": true, "outputLabel": "Mail" }
           ]
         },
-        "options": {
-          "fallbackOutput": "none"
-        }
+        "options": { "fallbackOutput": "none" }
       },
       "id": "node-switch",
       "name": "Route Switch",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
-      "position": [
-        1020,
-        300
-      ]
+      "position": [ 1020, 300 ]
     },
     {
       "parameters": {
@@ -173,17 +68,14 @@
         "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"📝 블로그 글을 작성 중입니다... 잠시 기다려주세요 (약 1-2분 소요)\\n🏷️ Session: <code>{{ $json.sessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"📝 블로그 글을 작성 중입니다... 잠시 기다려주세요 (약 1-2분 소요)\\n🏷️ Session: <code>{{ $json.displaySessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
         "options": {}
       },
       "id": "node-ack-naver",
       "name": "Send ACK (Naver)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1300,
-        0
-      ]
+      "position": [ 1300, 0 ]
     },
     {
       "parameters": {
@@ -192,18 +84,13 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { \"topic\": $node[\"Route by Command\"].json.topic, \"chatId\": $node[\"Route by Command\"].json.chatId, \"msgId\": $node[\"Route by Command\"].json.msgId, \"sessionId\": $node[\"Route by Command\"].json.sessionId } }}",
-        "options": {
-          "timeout": 300000
-        }
+        "options": { "timeout": 300000 }
       },
       "id": "node-write-article",
       "name": "Write & Format Article",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1580,
-        0
-      ]
+      "position": [ 1580, 0 ]
     },
     {
       "parameters": {
@@ -211,17 +98,14 @@
         "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"📊 주식 포트폴리오를 분석 중입니다... (1분 ~ 10분 소요)\\n🏷️ Session: <code>{{ $json.sessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"📊 주식 포트폴리오를 분석 중입니다... (1분 ~ 10분 소요)\\n🏷️ Session: <code>{{ $json.displaySessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
         "options": {}
       },
       "id": "node-ack-stock",
       "name": "Send ACK (Stock)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1300,
-        300
-      ]
+      "position": [ 1300, 300 ]
     },
     {
       "parameters": {
@@ -230,18 +114,13 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { \"chatId\": $node[\"Route by Command\"].json.chatId, \"msgId\": $node[\"Route by Command\"].json.msgId, \"sessionId\": $node[\"Route by Command\"].json.sessionId, \"photoFileIds\": $node[\"Route by Command\"].json.photoFileIds, \"mediaGroupId\": $node[\"Route by Command\"].json.mediaGroupId, \"message\": $node[\"Route by Command\"].json.message, \"subIntent\": $node[\"Route by Command\"].json.subIntent } }}",
-        "options": {
-          "timeout": 600000
-        }
+        "options": { "timeout": 600000 }
       },
       "id": "node-format-stock-report",
       "name": "Analyze & Report Stock",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1580,
-        300
-      ]
+      "position": [ 1580, 300 ]
     },
     {
       "parameters": {
@@ -249,30 +128,24 @@
         "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"⏳ OpenCode 처리 중입니다...\\n🏷️ Session: <code>{{ $json.sessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"⏳ OpenCode 처리 중입니다...\\n🏷️ Session: <code>{{ $json.displaySessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
         "options": {}
       },
       "id": "node-ack",
       "name": "Send ACK (General)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1300,
-        600
-      ]
+      "position": [ 1300, 600 ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Run OpenCode ────────────────────────────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst TIMEOUT = 300000;\n\n// Try to get data from the 'Route by Command' node\nconst routeNode = $('Route by Command');\nconst routeData = routeNode.first() ? routeNode.first().json : $json;\n\nconst message = routeData.message || '';\nconst chatId  = routeData.chatId;\nconst msgId   = routeData.msgId;\nconst sessionIdDisplay = routeData.sessionId || 'none';\n\nconsole.log('[Run OpenCode] Executing with message:', message.slice(0, 50));\n\n// Handle /new system response\nif (routeData.responseText) {\n  const formattedText = `✨ <b>System Message:</b>\\n🏷️ <b>Session:</b> <code>${sessionIdDisplay}</code>\\n\\n${routeData.responseText}`;\n  return [{ json: { chatId, msgId, formattedText, sessionId: sessionIdDisplay } }];\n}\n\nif (!message) {\n  return [{ json: { chatId, msgId, formattedText: '(메시지가 비어있습니다)', sessionId: sessionIdDisplay } }];\n}\n\nfunction escapeHTML(str) {\n  return str.replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\n}\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/run`,\n    body: { prompt: message, chatId: String(chatId) },\n    json: true,\n    timeout: TIMEOUT\n  });\n\n  const model = result.model || 'OpenCode';\n  let text = result.text || '(no output)';\n  \n  if (text.length > 3900) {\n    text = text.slice(0, 3900) + \"\\n\\n... (Truncated)\";\n  }\n  \n  const returnedSession = result.sessionId ? result.sessionId.replace(/^ses_/, '') : sessionIdDisplay;\n  const formattedText = `🤖 <b>Model:</b> <code>${escapeHTML(model)}</code> \\n🏷️ <b>Session:</b> <code>${escapeHTML(returnedSession)}</code>\\n\\n${escapeHTML(text)}`;\n  \n  return [{ json: { chatId, msgId, formattedText, sessionId: returnedSession } }];\n} catch (e) {\n  const errMsg = (e.message || '').slice(0, 500);\n  const formattedText = `❌ <b>오류:</b> \\n🏷️ <b>Session:</b> <code>${escapeHTML(sessionIdDisplay)}</code>\\n\\n<pre>${escapeHTML(errMsg)}</pre>`;\n  return [{ json: { chatId, msgId, formattedText, sessionId: sessionIdDisplay } }];\n}"
+        "jsCode": "// ─── Run OpenCode ────────────────────────────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst routeData = $('Route by Command').first().json;\nconst { chatId, msgId, message, intent, responseText, sessionId } = routeData;\n\n// Handle /new response\nif (responseText) return [{ json: { chatId, msgId, formattedText: responseText, sessionId } }];\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST', url: `${OPENCODE_URL}/run`, \n    body: { prompt: message, chatId: String(chatId), sessionId, intent }, \n    json: true, timeout: 300000\n  });\n  return [{ json: { chatId, msgId, formattedText: result.formattedText, sessionId: result.sessionId || sessionId } }];\n} catch (e) {\n  return [{ json: { chatId, msgId, formattedText: `❌ 오류: ${e.message}`, sessionId } }];\n}"
       },
       "id": "node-run-opencode",
       "name": "Run OpenCode",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1580,
-        600
-      ]
+      "position": [ 1580, 600 ]
     },
     {
       "parameters": {
@@ -287,10 +160,7 @@
       "name": "Send Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        2000,
-        300
-      ]
+      "position": [ 2000, 300 ]
     },
     {
       "parameters": {
@@ -298,202 +168,49 @@
         "url": "=https://api.telegram.org/bot%TELEGRAM_TOKEN%/sendMessage",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"📧 AI가 이메일을 작성하고 발송 중입니다...\\n🏷️ Session: <code>{{ $json.sessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
+        "jsonBody": "={\n  \"chat_id\": {{ $json.chatId }},\n  \"text\": \"📧 AI가 이메일을 작성하고 발송 중입니다...\\n🏷️ Session: <code>{{ $json.displaySessionId }}</code>\",\n  \"reply_to_message_id\": {{ $json.msgId }},\n  \"parse_mode\": \"HTML\"\n}",
         "options": {}
       },
       "id": "node-ack-mail",
       "name": "Send ACK (Mail)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1300,
-        900
-      ]
+      "position": [ 1300, 900 ]
     },
     {
       "parameters": {
-        "jsCode": "// ─── Generate & Send AI Email ────────────────────────────────────────────\nconst OPENCODE_URL = 'http://opencode-proxy:3284';\nconst routeData = $('Route by Command').first().json;\nconst { chatId, msgId, sessionId, receiver, query } = routeData;\n\nif (!receiver || !query) {\n  throw new Error('이메일 주소나 요청 내용이 비어있습니다. 사용법: /mail recipient@example.com \"내용\"');\n}\n\ntry {\n  // 1. Generate Email Content\n  const genResult = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/generate-email`,\n    body: { query, chatId: String(chatId) },\n    json: true,\n    timeout: 120000\n  });\n\n  if (!genResult.ok) throw new Error(genResult.text || '이메일 생성 실패');\n\n  // 2. Send Email via SMTP\n  const sendResult = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${OPENCODE_URL}/send-email`,\n    body: { \n      to: receiver, \n      subject: genResult.subject, \n      body: genResult.body \n    },\n    json: true,\n    timeout: 60000\n  });\n\n  if (!sendResult.ok) throw new Error(sendResult.text || '이메일 발송 실패');\n\n  const formattedText = `✅ <b>이메일 발송 성공!</b>\\n🏷️ <b>Session:</b> <code>${sessionId || 'none'}</code> (Model: ${genResult.model})\\n\\n📬 <b>To:</b> ${receiver}\\n📌 <b>Subject:</b> ${genResult.subject}\\n\\n${genResult.body.slice(0, 500)}${genResult.body.length > 500 ? '...' : ''}`;\n  \n  return [{ json: { chatId, msgId, formattedText, sessionId } }];\n} catch (e) {\n  const errMsg = (e.response && e.response.data && e.response.data.text) \n    ? e.response.data.text \n    : (e.response && e.response.data && e.response.data.error) \n      ? (typeof e.response.data.error === 'string' ? e.response.data.error : JSON.stringify(e.response.data.error))\n      : e.message;\n  const formattedText = `❌ <b>이메일 오류:</b>\\n🏷️ <b>Session:</b> <code>${sessionId || 'none'}</code>\\n\\n<pre>${errMsg}</pre>`;\n  return [{ json: { chatId, msgId, formattedText, sessionId } }];\n}"
+        "jsCode": "// ─── Generate & Send AI Email (Modularized) ─────────────────────────────────\nconst EMAIL_PROXY_URL = 'http://email-proxy:3288';\nconst routeData = $('Route by Command').first().json;\nconst { chatId, msgId, receiver, query, sessionId } = routeData;\n\ntry {\n  const result = await this.helpers.httpRequest({\n    method: 'POST', \n    url: `${EMAIL_PROXY_URL}/send-ai-email`, \n    body: { query, receiver, chatId: String(chatId), sessionId }, \n    json: true, timeout: 180000\n  });\n  return [{ json: { chatId, msgId, formattedText: result.formattedText, sessionId: result.sessionId || sessionId } }];\n} catch (e) {\n  return [{ json: { chatId, msgId, formattedText: `❌ 이메일 오류: ${e.message}`, sessionId } }];\n}"
       },
       "id": "node-generate-send-email",
       "name": "Generate & Send Email",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1580,
-        900
-      ]
+      "position": [ 1580, 900 ]
     }
   ],
   "connections": {
-    "Webhook Trigger": {
-      "main": [
-        [
-          {
-            "node": "Parse & Buffer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse & Buffer": {
-      "main": [
-        [
-          {
-            "node": "Session Manager",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Session Manager": {
-      "main": [
-        [
-          {
-            "node": "Route by Command",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Route by Command": {
-      "main": [
-        [
-          {
-            "node": "Route Switch",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
+    "Webhook Trigger": { "main": [[{ "node": "Parse & Buffer", "type": "main", "index": 0 }]] },
+    "Parse & Buffer": { "main": [[{ "node": "Session Manager", "type": "main", "index": 0 }]] },
+    "Session Manager": { "main": [[{ "node": "Route by Command", "type": "main", "index": 0 }]] },
+    "Route by Command": { "main": [[{ "node": "Route Switch", "type": "main", "index": 0 }]] },
     "Route Switch": {
       "main": [
-        [
-          {
-            "node": "Send ACK (Naver)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Send ACK (Stock)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Send ACK (General)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Send ACK (Mail)",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{ "node": "Send ACK (Naver)", "type": "main", "index": 0 }],
+        [{ "node": "Send ACK (Stock)", "type": "main", "index": 0 }],
+        [{ "node": "Send ACK (General)", "type": "main", "index": 0 }],
+        [{ "node": "Send ACK (Mail)", "type": "main", "index": 0 }]
       ]
     },
-    "Send ACK (Mail)": {
-      "main": [
-        [
-          {
-            "node": "Generate & Send Email",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate & Send Email": {
-      "main": [
-        [
-          {
-            "node": "Send Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send ACK (Naver)": {
-      "main": [
-        [
-          {
-            "node": "Write & Format Article",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Write & Format Article": {
-      "main": [
-        [
-          {
-            "node": "Send Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send ACK (Stock)": {
-      "main": [
-        [
-          {
-            "node": "Analyze & Report Stock",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Analyze & Report Stock": {
-      "main": [
-        [
-          {
-            "node": "Send Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send ACK (General)": {
-      "main": [
-        [
-          {
-            "node": "Run OpenCode",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Run OpenCode": {
-      "main": [
-        [
-          {
-            "node": "Send Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+    "Send ACK (Mail)": { "main": [[{ "node": "Generate & Send Email", "type": "main", "index": 0 }]] },
+    "Generate & Send Email": { "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]] },
+    "Send ACK (Naver)": { "main": [[{ "node": "Write & Format Article", "type": "main", "index": 0 }]] },
+    "Write & Format Article": { "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]] },
+    "Send ACK (Stock)": { "main": [[{ "node": "Analyze & Report Stock", "type": "main", "index": 0 }]] },
+    "Analyze & Report Stock": { "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]] },
+    "Send ACK (General)": { "main": [[{ "node": "Run OpenCode", "type": "main", "index": 0 }]] },
+    "Run OpenCode": { "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]] }
   },
-  "settings": {
-    "executionOrder": "v1",
-    "saveManualExecutions": true
-  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
   "id": "tg-opencode-main",
   "active": true
 }

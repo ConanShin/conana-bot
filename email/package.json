@@ -1,0 +1,13 @@
+{
+  "name": "conana-bot-email-proxy",
+  "version": "1.0.0",
+  "description": "Microservice for handling email generation and sending",
+  "main": "email-proxy.js",
+  "scripts": {
+    "test": "node test-email.js"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.13",
+    "dotenv": "^16.4.5"
+  }
+}

@@ -1,7 +1,9 @@
 {
-  "name": "conana-bot-stock",
+  "name": "conana-bot-stock-proxy",
   "version": "1.0.0",
-  "description": "Stock analysis microservice",
+  "description": "Microservice for Stock Portfolio Analysis",
   "main": "stock-proxy.js",
-  "dependencies": {}
+  "dependencies": {
+    "nodemailer": "^6.9.13"
+  }
 }

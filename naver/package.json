@@ -1,7 +1,9 @@
 {
-  "name": "conana-bot-naver",
+  "name": "conana-bot-naver-proxy",
   "version": "1.0.0",
-  "description": "Naver article generation microservice",
+  "description": "Microservice for Naver Blog generation",
   "main": "naver-proxy.js",
-  "dependencies": {}
+  "dependencies": {
+    "nodemailer": "^6.9.13"
+  }
 }
