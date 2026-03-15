@@ -45,6 +45,34 @@ services:
       - ~/.cache/opencode:/root/.cache/opencode
       - ~/.local/share/opencode:/root/.local/share/opencode
 
+  naver-proxy:
+    build:
+      context: ./naver
+      dockerfile: Dockerfile
+    container_name: naver-proxy
+    restart: unless-stopped
+    ports:
+      - "3285:3285"
+    environment:
+      - OPENCODE_URL=http://opencode-proxy:3284
+    depends_on:
+      - opencode-proxy
+
+  stock-proxy:
+    build:
+      context: ./stock
+      dockerfile: Dockerfile
+    container_name: stock-proxy
+    restart: unless-stopped
+    ports:
+      - "3286:3286"
+    environment:
+      - OPENCODE_URL=http://opencode-proxy:3284
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - STOCK_MODEL=${STOCK_MODEL:-google/antigravity-claude-opus-4-6-thinking}
+    depends_on:
+      - opencode-proxy
+
 
 volumes:
   n8n_data:

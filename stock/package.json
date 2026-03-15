@@ -1,0 +1,7 @@
+{
+  "name": "conana-bot-stock",
+  "version": "1.0.0",
+  "description": "Stock analysis microservice",
+  "main": "stock-proxy.js",
+  "dependencies": {}
+}

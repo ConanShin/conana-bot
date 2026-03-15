@@ -16,7 +16,6 @@ try {
 
 const PORT = process.env.OPENCODE_PROXY_PORT || 3284;
 const DEFAULT_MODEL = process.env.PRIMARY_MODEL || "google/antigravity-gemini-3.1-pro";
-const STOCK_MODEL = process.env.STOCK_MODEL || "google/antigravity-claude-opus-4-6-thinking";
 const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "google/antigravity-gemini-3-flash";
 
 function downloadFile(url, destPath) {
@@ -187,16 +186,16 @@ const server = http.createServer(async (req, res) => {
       }
 
       const sessionId = chatIdStr ? sessionManager.get(chatIdStr) : null;
-      console.log(`[${new Date().toISOString()}] Analyzing ${tempFiles.length} images with ${STOCK_MODEL} (session: ${sessionId || 'none'})`);
+      console.log(`[${new Date().toISOString()}] Analyzing ${tempFiles.length} images with ${DEFAULT_MODEL} (session: ${sessionId || 'none'})`);
 
       let result;
       try {
-        result = await runOpencode(prompt, STOCK_MODEL, sessionId, chatIdStr, tempFiles);
+        result = await runOpencode(prompt, DEFAULT_MODEL, sessionId, chatIdStr, tempFiles);
       } catch (err) {
         const msg = (err.stderr || err.message || "").toLowerCase();
         const isQuota = /quota|rate|429|overload|limit|unavailable/.test(msg);
         if (isQuota) {
-          console.warn(`Stock model (${STOCK_MODEL}) quota hit, falling back to ${FALLBACK_MODEL}`);
+          console.warn(`Vision model quota hit, falling back to ${FALLBACK_MODEL}`);
           result = await runOpencode(prompt, FALLBACK_MODEL, sessionId, chatIdStr, tempFiles);
         } else {
           throw err;
