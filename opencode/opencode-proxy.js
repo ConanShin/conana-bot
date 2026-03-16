@@ -128,9 +128,14 @@ const server = http.createServer(async (req, res) => {
       let finalPrompt = prompt;
       let finalModel = model;
 
-      // Wrap general questions to use the flash model and answer non-coding questions naturally
-      if (intent === "general" && prompt !== "New session initialized.") {
-        finalPrompt = `You are a helpful and general-purpose AI assistant. Please answer the user's question naturally and comprehensively, regardless of whether it relates to coding, search, or anything else.\n\nUser Question: ${prompt}`;
+      // Wrap general/search/qa questions with a general-purpose prompt and use Flash model.
+      // Any intent that reaches this endpoint is NOT blog/stock/email (those have their own proxies),
+      // so all of them should be treated as general-purpose questions.
+      const GENERAL_INTENTS = new Set(["general", "search", "qa"]);
+      const isGeneralQuestion = intent && GENERAL_INTENTS.has(intent) && prompt !== "New session initialized.";
+
+      if (isGeneralQuestion) {
+        finalPrompt = `You are a helpful and general-purpose AI assistant. Answer the user's question naturally and comprehensively in the same language the user used. You can answer about anything: weather, news, general knowledge, coding, science, history, etc.\n\nUser Question: ${prompt}`;
         finalModel = finalModel || process.env.FALLBACK_MODEL || "google/antigravity-gemini-3-flash";
       }
 
