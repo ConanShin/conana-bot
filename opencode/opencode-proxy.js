@@ -5,10 +5,35 @@ const { runOpencode, runWithFallback } = require("./opencode-runner");
 
 const PORT = process.env.OPENCODE_PROXY_PORT || 3284;
 const DEFAULT_MODEL = process.env.PRIMARY_MODEL || "google/antigravity-gemini-3.1-pro";
+const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "google/antigravity-gemini-3-flash";
+const DEFAULT_VISION_MODEL = FALLBACK_MODEL; // Use Flash for vision tasks as it's more robust in this environment
 
 const MODULE_NAME = "General";
 
+const pendingInits = new Map(); // chatId -> Promise<sessionId>
+
 // ─── Helpers ──────────────────────────────────────────────────────────
+
+async function initializeSession(chatIdStr) {
+  if (pendingInits.has(chatIdStr)) return pendingInits.get(chatIdStr);
+
+  const initPromise = (async () => {
+    try {
+      console.log(`[Session] Initializing first session for chatId: ${chatIdStr}`);
+      // Use Flash for faster initialization
+      const result = await runOpencode("New session initialized.", FALLBACK_MODEL, null, chatIdStr);
+      return result.sessionId || "none";
+    } catch (err) {
+      console.error("[Session] Init failed:", err.message);
+      return "none";
+    } finally {
+      pendingInits.delete(chatIdStr);
+    }
+  })();
+
+  pendingInits.set(chatIdStr, initPromise);
+  return initPromise;
+}
 
 /** Resolve session: body > memory > null */
 function resolveSession(bodySessionId, chatIdStr) {
@@ -52,16 +77,11 @@ const server = http.createServer(async (req, res) => {
     const chatId = new URL(req.url, "http://localhost").searchParams.get("chatId");
     if (!chatId) return respond(res, 400, { error: "chatId is required" });
 
-    let sessionId = sessionManager.get(chatId);
+    const chatIdStr = String(chatId);
+    let sessionId = sessionManager.get(chatIdStr);
 
     if (sessionId === "none") {
-      console.log(`[Session] Initializing first session for chatId: ${chatId}`);
-      try {
-        const result = await runOpencode("New session initialized.", DEFAULT_MODEL, null, chatId);
-        sessionId = result.sessionId || "none";
-      } catch (err) {
-        console.error("[Session] Init failed:", err.message);
-      }
+      sessionId = await initializeSession(chatIdStr);
     }
 
     return respond(res, 200, { sessionId });
@@ -71,14 +91,16 @@ const server = http.createServer(async (req, res) => {
     try {
       const { chatId } = await readBody(req);
       const chatIdStr = chatId ? String(chatId) : null;
-      sessionManager.clear(chatIdStr);
-      console.log(`[Session] Cleared for chatId: ${chatIdStr}`);
+      if (!chatIdStr) return respond(res, 400, { error: "chatId is required" });
 
-      const result = await runOpencode("New session initialized.", DEFAULT_MODEL, null, chatIdStr);
+      sessionManager.clear(chatIdStr);
+      console.log(`[Session] Clearing and re-initializing for chatId: ${chatIdStr}`);
+
+      const sessionId = await initializeSession(chatIdStr);
       return respond(res, 200, {
         ok: true,
-        sessionId: result.sessionId || "none",
-        message: "✨ 새로운 세션이 발급되었습니다!"
+        sessionId,
+        message: "✨ 새로운 세션을 준비했습니다!"
       });
     } catch (err) {
       console.error("[Session] Clear error:", err.message);
@@ -129,21 +151,25 @@ const server = http.createServer(async (req, res) => {
       let finalModel = model;
 
       // Wrap general/search/qa questions with a general-purpose prompt and use Flash model.
-      // Any intent that reaches this endpoint is NOT blog/stock/email (those have their own proxies),
-      // so all of them should be treated as general-purpose questions.
       const GENERAL_INTENTS = new Set(["general", "search", "qa"]);
       const isGeneralQuestion = intent && GENERAL_INTENTS.has(intent) && prompt !== "New session initialized.";
 
       if (isGeneralQuestion) {
         finalPrompt = `You are a helpful and general-purpose AI assistant. Answer the user's question naturally and comprehensively in the same language the user used. You can answer about anything: weather, news, general knowledge, coding, science, history, etc.\n\nUser Question: ${prompt}`;
-        finalModel = finalModel || process.env.FALLBACK_MODEL || "google/antigravity-gemini-3-flash";
+        finalModel = finalModel || FALLBACK_MODEL;
       }
 
       console.log(`[General] Run: chat=${chatIdStr}, session=${sessionId || "none"}, intent=${intent || "N/A"}`);
 
+      const runSession = isGeneralQuestion ? null : sessionId;
+      const runChatId = isGeneralQuestion ? null : chatIdStr;
+
       const result = finalModel
-        ? await runOpencode(finalPrompt, finalModel, sessionId, chatIdStr)
-        : await runWithFallback(finalPrompt, sessionId, chatIdStr);
+        ? await runOpencode(finalPrompt, finalModel, runSession, runChatId)
+        : await runWithFallback(finalPrompt, runSession, runChatId);
+
+      // Restore session if run statelessly
+      if (isGeneralQuestion && sessionId) result.sessionId = sessionId;
 
       const isSystem = prompt === "New session initialized.";
       const cleanContent = sanitizeResponseText(result.text, isSystem);
@@ -172,15 +198,40 @@ const server = http.createServer(async (req, res) => {
   // ═══════════════════════════════════════════════════════════════
 
   if (req.method === "POST" && req.url === "/analyze-image") {
+    const tmpFiles = [];
     try {
       const { prompt, imageUrls, chatId, sessionId: bodySessionId } = await readBody(req);
       const chatIdStr = chatId ? String(chatId) : null;
       if (!prompt || !imageUrls) return respond(res, 400, { error: "prompt and imageUrls are required" });
 
       const sessionId = resolveSession(bodySessionId, chatIdStr);
-      console.log(`[General] Vision: chat=${chatIdStr}, session=${sessionId || "none"}`);
+      console.log(`[General] Vision: chat=${chatIdStr}, session=${sessionId || "none"}, images=${imageUrls.length}`);
 
-      const result = await runOpencode(prompt, DEFAULT_MODEL, sessionId, chatIdStr, imageUrls);
+      // 1. Download remote URLs to local /tmp files
+      const localFilePaths = [];
+      const { downloadFile, crypto, path } = require("../shared");
+
+      for (const url of imageUrls) {
+        if (url.startsWith("http")) {
+          const hash = crypto.createHash("md5").update(url).digest("hex");
+          const ext = url.split(".").pop().split("?")[0] || "jpg";
+          const dest = path.join("/tmp", `vision_${hash}.${ext}`);
+          try {
+            await downloadFile(url, dest);
+            localFilePaths.push(dest);
+            tmpFiles.push(dest);
+          } catch (e) { console.error(`[General] Failed to download ${url}:`, e.message); }
+        } else {
+          localFilePaths.push(url);
+        }
+      }
+
+      if (localFilePaths.length === 0 && imageUrls.length > 0) {
+        return respond(res, 500, { error: "Failed to resolve any image files" });
+      }
+
+      // 2. Run analysis - Priortize Flash for vision to avoid permission errors
+      const result = await runOpencode(prompt, DEFAULT_VISION_MODEL, sessionId, chatIdStr, localFilePaths);
 
       return respond(res, 200, {
         text: result.text,
@@ -190,6 +241,9 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       console.error("[General] Vision error:", err.message);
       return respond(res, 500, { error: err.message });
+    } finally {
+      const { fs } = require("../shared");
+      for (const f of tmpFiles) { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (e) {} }
     }
   }
 
@@ -198,5 +252,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`General proxy (OpenCode) running on port ${PORT}`);
-  console.log(`Default Model: ${DEFAULT_MODEL}`);
+  console.log(`Default Model: ${DEFAULT_MODEL}, Vision Model: ${DEFAULT_VISION_MODEL}`);
 });

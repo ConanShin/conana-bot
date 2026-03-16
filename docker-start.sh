@@ -19,22 +19,56 @@ sleep 1
 # 2. Get Tunnel URL
 echo "🌐 Starting Cloudflare tunnel..."
 CF_LOG="/tmp/cloudflare.log"
+rm -f "$CF_LOG" # Clear old logs
 npx -y cloudflared tunnel --url http://localhost:$LT_PORT > "$CF_LOG" 2>&1 &
 CF_PID=$!
 echo $CF_PID > /tmp/localtunnel.pid
 
+# Wait and verify
+VALID_URL=false
 for i in $(seq 1 30); do
-  if grep -a -q "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" "$CF_LOG" 2>/dev/null; then
+  # Check for the specific pattern in the log
+  TUNNEL_URL=$(grep -a -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" "$CF_LOG" | head -1)
+  if [[ $TUNNEL_URL == https* ]]; then
+    VALID_URL=true
     break
   fi
+  # Error check: if cloudflared exited early
+  if ! kill -0 $CF_PID 2>/dev/null; then
+    echo "  ❌ cloudflared process died unexpectedly. Check $CF_LOG"
+    exit 1
+  fi
+  printf "."
   sleep 1
 done
+echo ""
 
-TUNNEL_URL=$(grep -a -o "https://[a-zA-Z0-9.-]*\.trycloudflare\.com" "$CF_LOG" | head -1)
+if [ "$VALID_URL" = false ]; then
+  echo "  ⚠️  Cloudflare tunnel failed. Trying localtunnel fallback..."
+  kill $CF_PID 2>/dev/null || true
+  
+  LT_LOG="/tmp/localtunnel.log"
+  rm -f "$LT_LOG"
+  npx -y localtunnel --port $LT_PORT > "$LT_LOG" 2>&1 &
+  LT_PID=$!
+  echo $LT_PID > /tmp/localtunnel.pid
+  
+  for i in $(seq 1 20); do
+    TUNNEL_URL=$(grep -a -o "https://[a-zA-Z0-9.-]*\.loca\.lt" "$LT_LOG" | head -1)
+    if [[ $TUNNEL_URL == https* ]]; then
+      VALID_URL=true
+      break
+    fi
+    printf "."
+    sleep 1
+  done
+  echo ""
+fi
 
-if [ -z "$TUNNEL_URL" ]; then
-  echo "  ⚠️  Could not get Cloudflare URL"
-  TUNNEL_URL="http://localhost:5678"
+if [ "$VALID_URL" = false ]; then
+  echo "  ❌ Failed to obtain any valid tunnel URL (Tried Cloudflare and Localtunnel)."
+  echo "     Check your internet connection."
+  exit 1
 fi
 
 echo "  ✅ Tunnel URL: $TUNNEL_URL"

@@ -20,6 +20,9 @@ services:
       - N8N_USER_MANAGEMENT_DISABLED=true
       - N8N_PERSONALIZATION_ENABLED=false
       - N8N_DIAGNOSTICS_ENABLED=false
+      # Increase memory and timeout for JS Task Runner
+      - N8N_RUNNERS_MAX_OLD_SPACE_SIZE=1024
+      - N8N_BLOCK_TIMEOUT=120
     depends_on:
       - opencode-proxy
     volumes:

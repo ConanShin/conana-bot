@@ -22,7 +22,7 @@ function extractAnswer(stdout) {
   const errors = [];
   let sessionId = null;
   let hasValidResponse = false;
-  
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -34,7 +34,7 @@ function extractAnswer(stdout) {
         if (ev.sessionID && !sessionId) {
           sessionId = ev.sessionID;
         }
-        
+
         // Response content extraction
         if (ev.type === "text" && ev.part?.text) {
           parts.push(ev.part.text);
@@ -58,7 +58,7 @@ function extractAnswer(stdout) {
   }
 
   let text = parts.join("").trim();
-  
+
   // Refined fallback: remove ANY line that looks like it could be part of JSON
   if (!text) {
     const cleaned = stripAnsi(stdout)
@@ -103,12 +103,9 @@ async function runOpencode(prompt, model, sessionId, chatIdStr, files = []) {
     if (stderr) console.warn("stderr:", stderr.slice(0, 500));
 
     const extracted = extractAnswer(stdout);
-    
-    // Only persist session if we got a valid response and a valid session ID
+
     let finalSessionId = sessionId;
-    
-    // Logic: Only update sessionId if we got a real response and a session ID from the binary
-    // This prevents "none" or random system trace IDs from overwriting valid chat sessions
+
     if (extracted.hasValidResponse && extracted.sessionId) {
       finalSessionId = extracted.sessionId;
     }

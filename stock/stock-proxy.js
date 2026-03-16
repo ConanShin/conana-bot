@@ -129,8 +129,19 @@ const server = http.createServer(async (req, res) => {
       // Collect album photos
       if (mediaGroupId) {
         try {
+          // Wait to collect all photos in the album
           const collected = await httpRequest({ url: `${OPENCODE_URL}/media-group/collect?id=${mediaGroupId}&waitMs=2000` });
-          if (collected.fileIds?.length > 0) files = collected.fileIds;
+          
+          // Parallel execution protection:
+          // If another execution for the same album already collected/cleared the buffer,
+          // this one will get empty fileIds. We should stop here to avoid sending duplicate guide messages.
+          if (!collected.fileIds || collected.fileIds.length === 0) {
+            console.log(`[Stock] Skipping parallel album execution for ${mediaGroupId}`);
+            res.writeHead(204);
+            res.end();
+            return;
+          }
+          files = collected.fileIds;
         } catch (e) {
           console.error("[Stock] Media collection failed:", e.message);
         }
@@ -138,7 +149,8 @@ const server = http.createServer(async (req, res) => {
 
       const stockData = await extractStockData(files, cleanMessage, isListOnly, chatId, sessionId);
 
-      // No data found → guide
+      // No data found -> guide
+      // If we are here and still have no data, it means the extraction failed.
       if (!stockData) {
         const guide = isListOnly
           ? "📭 <b>보유 주식 없음</b>\n현재 세션에 저장된 주식 정보가 없습니다."
